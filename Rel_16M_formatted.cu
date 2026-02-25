@@ -62,37 +62,43 @@ __device__ void QDUMP(MASKTYPE MASKQUE[], double MKEY[], int MQXFront, int MQXRe
 }
  
 __device__ void __inline__ REHEAPIFY(MASKTYPE *MASKQUE, double MKEY[], MASKTYPE TempM, int n) { // From root down
-double TempK; 
-if (n <= 1) return;
-int i = 0, i1, i2, CX;
-while (i < n/2) {
-i1 = 2*i+1; i2 = 2*i+2; 
-CX = i1;
-if (i2 < n ) if(MKEY[i2] > MKEY[i1]) CX = i2; 
-if (MKEY[CX] > MKEY[i]) { 
-  TempM = MASKQUE[CX]; TempK = MKEY[CX];
-  MASKQUE[CX] = MASKQUE[i]; MKEY[CX] = MKEY[i];
-  MASKQUE[i] = TempM; MKEY[i] = TempK;
-  i = CX;
-  }
-  else return;
- }
+	double TempK; 
+	if (n <= 1) 
+		return;
+	int i = 0, i1, i2, CX;
+	while (i < n/2) {
+		i1 = 2*i+1; i2 = 2*i+2; 
+		CX = i1;
+		if (i2 < n ) 
+			if(MKEY[i2] > MKEY[i1]) 
+				CX = i2; 
+		if (MKEY[CX] > MKEY[i]) { 
+			TempM = MASKQUE[CX];
+			TempK = MKEY[CX];
+			MASKQUE[CX] = MASKQUE[i]; 
+			MKEY[CX] = MKEY[i];
+			MASKQUE[i] = TempM; 
+			MKEY[i] = TempK;
+			i = CX;
+		} else
+			return;
+	}
 }
 
 __device__ void __inline__ HEAPIFY(MASKTYPE *MASKQUE, double MKEY[], MASKTYPE TempM, int n) { // From down up
-double TempK; 
-if (n <= 1) return;
-int i = n-1, PX;
-while (i > 0) {
-PX = (i-1)/2;
-if (MKEY[PX] < MKEY[i]) { 
-  TempM = MASKQUE[PX]; TempK = MKEY[PX];
-  MASKQUE[PX] = MASKQUE[i]; MKEY[PX] = MKEY[i];
-  MASKQUE[i] = TempM; MKEY[i] = TempK;
-  i = PX;
-  }
-  else return;
- }
+	double TempK; 
+	if (n <= 1) return;
+	int i = n-1, PX;
+	while (i > 0) {
+	PX = (i-1)/2;
+	if (MKEY[PX] < MKEY[i]) { 
+		TempM = MASKQUE[PX]; TempK = MKEY[PX];
+		MASKQUE[PX] = MASKQUE[i]; MKEY[PX] = MKEY[i];
+		MASKQUE[i] = TempM; MKEY[i] = TempK;
+		i = PX;
+		}
+		else return;
+	}
 }
 
 //_____________________________________________________________________________________________________
@@ -121,7 +127,8 @@ __device__ void TID_TO_MASK(unsigned char * mask, int tid, int MaskSize , int TI
 __host__ __device__  int Seq_No(int i, int j , N_Type Nodes[], E_Type Edges[]) { 
            int offset = Nodes[i].Offset; int degree = Nodes[i].degree;
            for (int d= 0; d < degree; d++) 
-              { E_Type e = Edges[offset + d];if (e.dst == j) return(e.SeqNo);} 
+              { E_Type e = Edges[offset + d];
+					if (e.dst == j) return(e.SeqNo);} 
            return 0;
            }
 __host__ __device__ void PrintSeqNos(int N, int M , N_Type Nodes[], E_Type Edges[])
@@ -158,6 +165,7 @@ __device__ __forceinline__ bool Opermask(int N,unsigned char *NewMask,N_Type Nod
 __global__  void TC( Graph_Type *G, N_Type Nodes[], E_Type Edges[], float Prob[], int src, int t, double* d_Brel, double *d_Epsilon, int* d_NP, int TID_SIZE, int Device_ID)
 {
 	__shared__ double rel[NTH];
+	
 	__shared__ double Epsilon[NTH];
 	__shared__ int NP[NTH];// number of processed pathsets?
  	__shared__ bool Visited[NTH][MaxN];  // BFS src -> t SHOULD I HAVE [NTH] ???
@@ -205,6 +213,10 @@ __global__  void TC( Graph_Type *G, N_Type Nodes[], E_Type Edges[], float Prob[]
 	 
 	 MASKTYPE Mask = new unsigned char[MaskSize] ;   //// WORKING MASKS ////
 	 MASKTYPE NewMask = new unsigned char[MaskSize] ;
+	
+	rel[tx] = 0; 
+	Epsilon[tx] = 0; 
+	NP[tx] = 0; 
 	 
 	 //if (TID == 0) {for (int i = 0; i < MaskSize; i++) printf("%lf * ",Prob[i]); printf("\n");}
 	 __syncthreads();
@@ -353,15 +365,28 @@ __global__  void TC( Graph_Type *G, N_Type Nodes[], E_Type Edges[], float Prob[]
  	
  	__syncthreads();
 	for (unsigned int stride = blockDim.x /2; stride >0; stride = stride /2){
-		if (tx < stride) {rel[tx] += rel[tx+stride]; NP[tx] += NP[tx+stride]; Epsilon[tx] += Epsilon[tx+stride];}
+		if (tx < stride) {
+			rel[tx] += rel[tx+stride]; 
+			NP[tx] += NP[tx+stride]; 
+			Epsilon[tx] += Epsilon[tx+stride];
+		}
 	}
 
 	//__syncthreads(); 
-	if (tx == 0) {d_Brel[bx] = rel[0]; d_NP[bx] = NP[0]; d_Epsilon[bx] = Epsilon[0];}
+	if (tx == 0) {
+		d_Brel[bx] = rel[0]; 
+		d_NP[bx] = NP[0]; 
+		d_Epsilon[bx] = Epsilon[0];
+	}
 	//__syncthreads();
 	//printf("RELA = %lf ", d_Brel[0]);
-	for (int i=0; i< MAX_Q_SIZE; i++) { delete[] MASKQUE[i];}
-	delete[] MASKQUE; delete[] Mask; delete[] NewMask; delete[] MKEY;
+	for (int i=0; i< MAX_Q_SIZE; i++) { 
+		delete[] MASKQUE[i];
+	}
+	delete[] MASKQUE; 
+	delete[] Mask; 
+	delete[] NewMask; 
+	delete[] MKEY;
 	return;
 }
 
@@ -371,27 +396,30 @@ __global__  void TC( Graph_Type *G, N_Type Nodes[], E_Type Edges[], float Prob[]
 int main(){
     //printf("x = %lf ", 1- pow(0.75, 15));
     
-    size_t free, total;
-    cudaMemGetInfo(&free, &total);  
-    printf("TOTAL %lu  FREE %lu \n", total, free); 
+	size_t free, total;
+	cudaMemGetInfo(&free, &total);  
+	printf("TOTAL %lu  FREE %lu \n", total, free); 
     
-    int deviceCount;
-    cudaGetDeviceCount(&deviceCount);
-    cout << " GPU Count : " << deviceCount << endl;
+	int deviceCount;
+	cudaGetDeviceCount(&deviceCount);
+	cout << " GPU Count : " << deviceCount << endl;
     
-    size_t *H = new(size_t);
-    cudaDeviceSetLimit(cudaLimitMallocHeapSize, 3072*1024*1024LL);
-    cudaDeviceGetLimit(H, cudaLimitMallocHeapSize);
-    printf(" HEAP %lu \n", *H);
-    
+	size_t *H = new(size_t);
+	cudaDeviceSetLimit(cudaLimitMallocHeapSize, 3072*1024*1024LL);
+	cudaDeviceGetLimit(H, cudaLimitMallocHeapSize);
+	printf(" HEAP %lu \n", *H);
+	
 	//bool SMALL =false; int ET;int TNTH = NBL *NTH;// Total # threads for big graphs
 	Graph_Type *G1 = new Graph_Type; // INPUT GRAPH
 	Edge_Type *e_l;
 	//cout << sizeof(Edge_Type);
 	string fname; clock_t start, end;
 	cout << " Enter Input File Name: "; 
-	cin >> fname; cout << " Enter src & terminal: "; cin >> src >> t;
-	cout << "Enter NB : " ; cin >> NBL;
+	cin >> fname; 
+	cout << " Enter src & terminal: "; 
+	cin >> src >> t;
+	cout << "Enter NB : " ; 
+	cin >> NBL;
 	infile.open(fname.c_str()); if (!infile) std::cout << "Input File Error!!\n";
 	start = clock(); 
 	ReadGraph(G1);   N = G1->N; M = G1-> M;
@@ -399,77 +427,103 @@ int main(){
 	N_Type *Nodes = new N_Type[N]; E_Type *Edges = new E_Type[M]; Nodes[0].Offset = 0;	
 	int E_X = 0;
 	for (int n=0; n < N; n++) {
-	   int d=G1->Nodes[n].degree; Nodes[n].degree = d; if (n > 0) Nodes[n].Offset = Nodes[n-1].Offset + Nodes[n-1].degree;
-	   e_l = G1->Nodes[n].Adj_List;
-	      for (int dx=0; dx < d; dx++) 
-	        {Edges[E_X].SeqNo = e_l[dx].SeqNo; Edges[E_X].prob = e_l[dx].prob;Edges[E_X].dst = e_l[dx].dst;E_X++;}
-	 }
+		int d=G1->Nodes[n].degree;
+		Nodes[n].degree = d; 
+		if (n > 0) 
+			Nodes[n].Offset = Nodes[n-1].Offset + Nodes[n-1].degree;
+		e_l = G1->Nodes[n].Adj_List;
+		for (int dx=0; dx < d; dx++) {
+			Edges[E_X].SeqNo = e_l[dx].SeqNo; 
+			Edges[E_X].prob = e_l[dx].prob;Edges[E_X].dst = e_l[dx].dst;
+			E_X++;
+		}
+	}
 	 //PrintGraph (G1, Nodes, Edges);
 	 //PrintSeqNos(N, M , Nodes, Edges);
 	 //printf(" SSSS = %d ",Seq_No( 1, 2, Nodes, Edges)); 
-	 int NumOfEdges = M; if (G1->GT == 'U') NumOfEdges = M/2;
-	 Prob = new float[NumOfEdges]; // Enough precision
-	   
-	 for (int i =0; i < M; i++) {int sn = Edges[i].SeqNo; //if (sn >= M/2) cout << "ERROR"; 
-	 Prob[sn]= Edges[i].prob;}
-	
-        for (int i = 0; i <NGpus; i++ ) {
-        cudaSetDevice(i);
+	int NumOfEdges = M; 
+	if (G1->GT == 'U')
+		NumOfEdges = M/2;
+	Prob = new float[NumOfEdges]; // Enough precision
+	for (int i =0; i < M; i++) {
+		int sn = Edges[i].SeqNo; //if (sn >= M/2) cout << "ERROR"; 
+		Prob[sn]= Edges[i].prob;
+	}
+	for (int i = 0; i <NGpus; i++ ) {
+		cudaSetDevice(i);
      	
-	cudaMalloc( &d_Graph[i], sizeof(Graph_Type)* NBL);
-	cudaMalloc( &d_Brel[i], sizeof(double)* NBL);
-	cudaMalloc( &d_BEps[i], sizeof(double)* NBL);
-	cudaMalloc( &d_BNP[i], sizeof(int) * NBL);
-	cudaMalloc( &d_Nodes[i], sizeof(N_Type) * N);
-	cudaMalloc( &d_Edges[i], sizeof(E_Type) * M);
-	cudaMalloc( &d_Prob[i], sizeof(float) * M);
-	cudaMemcpyAsync( d_Graph[i], G1, sizeof(Graph_Type), cudaMemcpyHostToDevice);
-	cudaMemcpyAsync( d_Nodes[i], Nodes, sizeof(N_Type) * N, cudaMemcpyHostToDevice);
-	cudaMemcpyAsync( d_Edges[i], Edges, sizeof(E_Type) * M, cudaMemcpyHostToDevice);
-	cudaMemcpyAsync( d_Prob[i], Prob, sizeof(float) * M, cudaMemcpyHostToDevice);
-	cudaMemset( d_Brel[i], 0.0, NBL );cudaMemset( d_BEps[i], 0.0, NBL );
+		cudaMalloc( &d_Graph[i], sizeof(Graph_Type) * NBL);
+		cudaMalloc( &d_Brel[i], sizeof(double)* NBL);
+		cudaMalloc( &d_BEps[i], sizeof(double)* NBL);
+		cudaMalloc( &d_BNP[i], sizeof(int) * NBL);
+		cudaMalloc( &d_Nodes[i], sizeof(N_Type) * N);
+		cudaMalloc( &d_Edges[i], sizeof(E_Type) * M);
+		cudaMalloc( &d_Prob[i], sizeof(float) * M);
+		cudaMemcpyAsync( d_Graph[i], G1, sizeof(Graph_Type), cudaMemcpyHostToDevice);
+		cudaMemcpyAsync( d_Nodes[i], Nodes, sizeof(N_Type) * N, cudaMemcpyHostToDevice);
+		cudaMemcpyAsync( d_Edges[i], Edges, sizeof(E_Type) * M, cudaMemcpyHostToDevice);
+		cudaMemcpyAsync( d_Prob[i], Prob, sizeof(float) * M, cudaMemcpyHostToDevice);
+		cudaMemset( d_Brel[i], 0.0, NBL );
+		cudaMemset( d_BEps[i], 0.0, NBL );
 	 } // End Alloc & CPY
 	
 	int TID_SIZE = log2(NBL *NTH*NGpus); // cannot be called from kernel
  	for (int i = 0; i <NGpus; i++ ) {
- 	  cudaSetDevice(i);	 
-	 TC<<<NBL, NTH>>>(d_Graph[i], d_Nodes[i], d_Edges[i], d_Prob[i], src, t, d_Brel[i],  d_BEps[i], d_BNP[i],TID_SIZE, i);
-	 }
-	 
-	 for (int i = 0; i <NGpus; i++ ) {
- 	  cudaSetDevice(i);	 
-	 {
+		cudaSetDevice(i);	 
+		TC<<<NBL, NTH>>>(d_Graph[i], d_Nodes[i], d_Edges[i], d_Prob[i], src, t, d_Brel[i],  d_BEps[i], d_BNP[i],TID_SIZE, i);
+	}
+	
+	for (int i = 0; i <NGpus; i++ ) {
+		cudaSetDevice(i);
+		{
 		cudaError_t cudaerr = cudaDeviceSynchronize();
 		if (cudaerr != cudaSuccess)
 			printf("kernel launch failed with error \"%s\".\n",
 					cudaGetErrorString(cudaerr));
-	 }
+		}
 	}
 	for (int i = 0; i <NGpus; i++ ) { // HOST DATA NEEDS [] Too ?????????????????????????????????
-	cudaMemcpyAsync( Brel[i], d_Brel[i], sizeof(double)* NBL, cudaMemcpyDeviceToHost);
-	cudaMemcpyAsync( BNP[i], d_BNP[i], sizeof(int)* NBL, cudaMemcpyDeviceToHost);
-	cudaMemcpyAsync( BEps[i], d_BEps[i], sizeof(double)* NBL, cudaMemcpyDeviceToHost);
+		cudaMemcpyAsync( Brel[i], d_Brel[i], sizeof(double)* NBL, cudaMemcpyDeviceToHost);
+		cudaMemcpyAsync( BNP[i], d_BNP[i], sizeof(int)* NBL, cudaMemcpyDeviceToHost);
+		cudaMemcpyAsync( BEps[i], d_BEps[i], sizeof(double)* NBL, cudaMemcpyDeviceToHost);
 	}
-	double h_rel= 0.0, rel[NGpus] = { 0.0} , h_Eps= 0.0, Eps[NGpus] = {0.0 };int h_NP =0, NP[NGpus] ={0}; 
+	double h_rel= 0.0, rel[NGpus] = { 0.0} , h_Eps= 0.0, Eps[NGpus] = {0.0 };
+	int h_NP =0, NP[NGpus] ={0}; 
 	cout << "BACK "; 
 	for ( int d = 0; d < NGpus; d++) {
-	for (int i =0; i < NBL; i++) rel[d] += Brel[d][i];printf (" rel[ %d] (Lower Bound) = %.10lf \n",d,rel[d]);
-	for (int i =0; i < NBL; i++) Eps[d] += BEps[d][i];printf (" Eps[%d] = %.20lf Upper Bound = %.20lf \n", d, Eps[d], rel[d]+Eps[d]);
-	for (int i = 0; i < NBL; i++) NP[d] += BNP[d][i];printf (" NP[ %d] = %d \n", d, NP[d]);
+		for (int i =0; i < NBL; i++) 
+			rel[d] += Brel[d][i];
+		printf (" rel[ %d] (Lower Bound) = %.10lf \n",d,rel[d]);
+		for (int i =0; i < NBL; i++) 
+			Eps[d] += BEps[d][i];
+		printf (" Eps[%d] = %.20lf Upper Bound = %.20lf \n", d, Eps[d], rel[d]+Eps[d]);
+		for (int i = 0; i < NBL; i++) 
+			NP[d] += BNP[d][i];
+		printf (" NP[ %d] = %d \n", d, NP[d]);
 	}
-	 
-	end = clock(); cout << "Time = " << ((float) end - start)*1000/  CLOCKS_PER_SEC <<  " ms \n";
 	
-	for (int d = 0; d <NGpus; d++ ) { h_rel += rel[d]; h_Eps += Eps[d]; h_NP += NP[d];}
-	  printf ( " Totals: %.20lf  %.20lf  %d \n", h_rel, h_Eps, h_NP);
+	end = clock(); 
+	cout << "Time = " << ((float) end - start)*1000/  CLOCKS_PER_SEC <<  " ms \n";
+	
+	for (int d = 0; d <NGpus; d++ ) { 
+		h_rel += rel[d]; 
+		h_Eps += Eps[d]; 
+		h_NP += NP[d];
+	}
+	
+	printf ( " Totals: %.20lf  %.20lf  %d \n", h_rel, h_Eps, h_NP);
 	
 	for (int i = 0; i <NGpus; i++ ) {
-	cudaFree ((Graph_Type *) d_Graph[i]);
-	cudaFree ( (double *) d_Brel[i]); cudaFree ( (double *) d_Prob[i]);cudaFree ( (int *) d_BNP[i]); cudaFree ( (double *) d_BEps[i]);
-	cudaFree ( (Node_Type *) d_Nodes[i]); cudaFree ( (Edge_Type *) d_Edges[i]); 
-        }
-   
-    	return 0;
+		cudaFree ((Graph_Type *) d_Graph[i]);
+		cudaFree ( (double *) d_Brel[i]); 
+		cudaFree ( (double *) d_Prob[i]);
+		cudaFree ( (int *) d_BNP[i]); 
+		cudaFree ( (double *) d_BEps[i]);
+		cudaFree ( (Node_Type *) d_Nodes[i]); 
+		cudaFree ( (Edge_Type *) d_Edges[i]); 
+	}
+	return 0;
 }
 
 
+	
