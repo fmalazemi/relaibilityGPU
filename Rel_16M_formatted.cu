@@ -221,7 +221,7 @@ __global__  void TC( Graph_Type *G, N_Type Nodes[], E_Type Edges[], float Prob[]
 	int MQXFront = 0, MQXRear = -1 ;
 	bool OP;
 	 
-	int e_l; int d, dx; short V, j; ;
+	//int e_l; int d, dx; short V, j; ;
 	 
 	if (GT == 'U') 
 		MaskSize = M/2; 
@@ -311,53 +311,47 @@ __global__  void TC( Graph_Type *G, N_Type Nodes[], E_Type Edges[], float Prob[]
 		OP = Opermask_parents(N,Mask,Nodes,Edges, src, t, Visited[tx], Parent[tx], Queue[tx]);
 		
 		if (OP){ // Climb up the path from t to s; 
-			int i = Parent[tx][t]; 
-			int j = t; 
+			int from = Parent[tx][t]; 
+			int to = t; 
 			TQTOP= -1; 
-			while ( j != src) {
-				sn = Seq_No(i,j, Nodes, Edges);
+			while ( to != src) {
+				sn = Seq_No(from,to, Nodes, Edges);
 				if( Mask[sn] == 0xFF)  { 
-					TQTOP++; 
-					TQ[TQTOP] = sn; 
+					for (int i = 0; i< MaskSize; i++) 
+						NewMask[i] = Mask[i]; 
+					NewMULT = MULT;
+					NewMask[sn] = 0; 
+					NewMULT = NewMULT * (1 - Prob[sn]);
+					//for (int i = 0; i < MaskSize; i++) printf("%2x**",NewMask[i]); printf("\n");
+					if(Opermask(N,NewMask,Nodes,Edges, from, t, Visited[tx], Parent[tx], Queue[tx])) { // DOES NOT HAVE A CUT
+						//printf ("OPER\n");
+						if (Q_SIZE < MAX_Q_SIZE) { 
+							MQXRear++;  
+							for ( int i=0; i< MaskSize; i++) 
+								MASKQUE[MQXRear][i] = NewMask[i]; 
+							MKEY[MQXRear] = NewMULT; 
+							Q_SIZE++;  
+							// HEAPIFY(MASKQUE, MKEY, TempM, Q_SIZE);
+						} else { // MAX QUEUE SIZE EXCEEDED
+							//printf("MAX QUEUE SIZE EXCEEDED\n");   // --> Rel_10 // DON'T ADD NewMask TO QUEUE & Seq_10.cpp
+							// add its prob with 1's replacing-1s (don't cares) else do nothing)
+							NP[tx]++;
+							if(isnan(NewMULT)) 
+								printf("ISNAN\n");
+							if (!isnan(NewMULT)) {
+								Epsilon[tx] += NewMULT; 
+								//printf("TID: %d NP = %d NewMULT  %.20lf Eps %.20lf +++\n", TID, NP[TID], NewMULT, Eps[TID]);
+							}
+						}	 //  else
+					} // if Opermask (New Musk)
+					Mask[sn] = 1; 
+					MULT *= Prob[sn]; // MARK THIS EDGE UP IN THE CURRENT MASK           	      
+
 				}
-				j = i; 
-				i = Parent[tx][j];
+				to = from; 
+				from = Parent[tx][to];
 			}
-			while (TQTOP >= 0) { 
-				sn = TQ[TQTOP]; 
-				TQTOP--;  //Create EXTRA MASKS from TQ
-				// cREATE NEW MASK WITH THIS EDGE DOWN
-				//MASKTYPE NewMask = new unsigned char[MaskSize]; 
-				for (int i = 0; i< MaskSize; i++) 
-					NewMask[i] = Mask[i]; 
-				NewMULT = MULT;
-				NewMask[sn] = 0; 
-				NewMULT = NewMULT * (1 - Prob[sn]);
-				//for (int i = 0; i < MaskSize; i++) printf("%2x**",NewMask[i]); printf("\n");
-				if(Opermask(N,NewMask,Nodes,Edges, src, t, Visited[tx], Parent[tx], Queue[tx])) { // DOES NOT HAVE A CUT
-					//printf ("OPER\n");
-					if (Q_SIZE < MAX_Q_SIZE) { 
-						MQXRear++;  
-						for ( int i=0; i< MaskSize; i++) 
-							MASKQUE[MQXRear][i] = NewMask[i]; 
-						MKEY[MQXRear] = NewMULT; 
-						Q_SIZE++;  
-						// HEAPIFY(MASKQUE, MKEY, TempM, Q_SIZE);
-					} else { // MAX QUEUE SIZE EXCEEDED
-						//printf("MAX QUEUE SIZE EXCEEDED\n");   // --> Rel_10 // DON'T ADD NewMask TO QUEUE & Seq_10.cpp
-						// add its prob with 1's replacing-1s (don't cares) else do nothing)
-						NP[tx]++;
-						if(isnan(NewMULT)) 
-							printf("ISNAN\n");
-						if (!isnan(NewMULT)) {
-							Epsilon[tx] += NewMULT; 
-							//printf("TID: %d NP = %d NewMULT  %.20lf Eps %.20lf +++\n", TID, NP[TID], NewMULT, Eps[TID]);
-						}
-					}	 //  else
-				} // if Opermask (New Musk)
-				Mask[sn] = 1; 
-				MULT *= Prob[sn]; // MARK THIS EDGE UP IN THE CURRENT MASK           	      
-			}    // while	     	     
+			
 			// Add Increment to rel[tx],
 			NP[tx]++;
 			//for (int i = 0; i < MaskSize; i++) printf("%2x*",Mask[i]); printf("\n");
