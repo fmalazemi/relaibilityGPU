@@ -308,7 +308,7 @@ __global__  void TC( Graph_Type *G, N_Type Nodes[], E_Type Edges[], float Prob[]
 		//if (TID == 0) {printf("AFTER:: ");QDUMP(MASKQUE, MKEY, MQXFront, MQXRear,MaskSize);}
 		//if(TID == 13) {for (int i = 0; i < MaskSize; i++) printf("0x%.2x  ",Mask[i]); printf("\n");}
 		
-		OP = Opermask_parents(N,NewMask,Nodes,Edges, src, t, Visited[tx], Parent[tx], Queue[tx]);
+		OP = Opermask_parents(N,Mask,Nodes,Edges, src, t, Visited[tx], Parent[tx], Queue[tx]);
 		
 		if (OP){ // Climb up the path from t to s; 
 			int i = Parent[tx][t]; 
