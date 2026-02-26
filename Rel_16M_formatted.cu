@@ -137,29 +137,66 @@ __host__ __device__ void PrintSeqNos(int N, int M , N_Type Nodes[], E_Type Edges
 	    printf("\n Edges:  "); for (int i=0; i<M; i++)  printf(" %d %d %f :", Edges[i].SeqNo, Edges[i].dst, Edges[i].prob);
 	    printf ("\n*********************\n"); 
 	  }
-__device__ __forceinline__ bool Opermask(int N,unsigned char *NewMask,N_Type Nodes[],E_Type Edges[], int src, int t, bool *Visited,
-                short Parent[], short Queue[]) {
-          for (int i=0; i <N; i++) Visited[i]= false; 
-          bool OP = false; 
-	  for (int i=0; i <N; i++) Parent[i]= -1;
-	   
-	  int front=0, rear= -1, d, V;  
-	  rear++; Queue[rear] = (short) src; 
-	  while ( rear >= front) {
-	   V = Queue[front]; front++;  //printf("V = %d|", V);
-           d=Nodes[V].degree;   
-           int e_l = Nodes[V].Offset; 
-	   for (int dx=0; dx < d; dx++) { int j = Edges[e_l+dx].dst; int sn = Edges[e_l+dx].SeqNo; 
-	   //printf("0%xHERE %d %d %d|", V, j, sn);
-	      if (NewMask[sn] == 1 || NewMask[sn] == 0xFF ) if(!Visited[j]) {
-	      Visited[j] = true;rear++; Queue[rear] = j; Parent[j] = V;}
-	                      
-	      if (Visited[t]) {OP = true; break;}
-	     } // for
-	    if (Visited[t]) {OP = true; break;}
-	   } // while
-	   return OP;
- }   // END Opermask
+__device__ __forceinline__ bool Opermask(int N,unsigned char *NewMask,N_Type Nodes[],E_Type Edges[], int src, int t, bool *Visited, short Parent[], short Queue[]) {
+		for (int i=0; i <N; i++) 
+			Visited[i]= false; 
+		bool OP = false; 
+		int front=0, rear= -1, d, V;  
+		rear++; 
+		Queue[rear] = (short) src; 
+		while ( rear >= front) {
+			V = Queue[front]; 
+			front++;  //printf("V = %d|", V);
+			d=Nodes[V].degree;   
+			int e_l = Nodes[V].Offset; 
+			for (int dx=0; dx < d; dx++) { 
+				int j = Edges[e_l+dx].dst;
+				int sn = Edges[e_l+dx].SeqNo; 
+				//printf("0%xHERE %d %d %d|", V, j, sn);
+				if (NewMask[sn] == 1 || NewMask[sn] == 0xFF ) 
+					if(!Visited[j]) {
+						Visited[j] = true;
+						rear++; 
+						Queue[rear] = j; 
+					}
+				if (Visited[t]) {OP = true; break;}
+			} // for
+			if (Visited[t]) {OP = true; break;}
+		} // while
+	return OP;
+}   // END Opermask
+
+	__device__ __forceinline__ bool Opermask_parents(int N,unsigned char *NewMask,N_Type Nodes[],E_Type Edges[], int src, int t, bool *Visited, short Parent[], short Queue[]) {
+		for (int i=0; i <N; i++) 
+			Visited[i]= false; 
+		bool OP = false; 
+		for (int i=0; i <N; i++) 
+			Parent[i]= -1;
+		int front=0, rear= -1, d, V;  
+		rear++; 
+		Queue[rear] = (short) src; 
+		while ( rear >= front) {
+			V = Queue[front]; 
+			front++;  //printf("V = %d|", V);
+			d=Nodes[V].degree;   
+			int e_l = Nodes[V].Offset; 
+			for (int dx=0; dx < d; dx++) { 
+				int j = Edges[e_l+dx].dst;
+				int sn = Edges[e_l+dx].SeqNo; 
+				//printf("0%xHERE %d %d %d|", V, j, sn);
+				if (NewMask[sn] == 1 || NewMask[sn] == 0xFF ) 
+					if(!Visited[j]) {
+						Visited[j] = true;
+						rear++; 
+						Queue[rear] = j; 
+						Parent[j] = V;
+					}
+				if (Visited[t]) {OP = true; break;}
+			} // for
+			if (Visited[t]) {OP = true; break;}
+		} // while
+		return OP;
+	}   // END Opermask
  
    
 __global__  void TC( Graph_Type *G, N_Type Nodes[], E_Type Edges[], float Prob[], int src, int t, double* d_Brel, double *d_Epsilon, int* d_NP, int TID_SIZE, int Device_ID)
@@ -270,39 +307,9 @@ __global__  void TC( Graph_Type *G, N_Type Nodes[], E_Type Edges[], float Prob[]
 		REHEAPIFY(MASKQUE, MKEY, TempM, Q_SIZE); 
 		//if (TID == 0) {printf("AFTER:: ");QDUMP(MASKQUE, MKEY, MQXFront, MQXRear,MaskSize);}
 		//if(TID == 13) {for (int i = 0; i < MaskSize; i++) printf("0x%.2x  ",Mask[i]); printf("\n");}
-		for (int i=0; i <N; i++) 
-			Visited[tx][i]= false; 
-		OP = false; 
-		int front=0, rear= -1;
-		for (int i=0; i <N; i++) 
-			Parent[tx][i]= -1;
-		rear++; 
-		Queue[tx][rear] = (short) src; 
-		while ( rear >= front) {
-			V = Queue[tx][front]; 
-			front++;  //printf("V = %d|", V);
-			d= Nodes[V].degree;   
-			e_l = Nodes[V].Offset; 
-			for (dx=0; dx < d; dx++) {
-				j = Edges[e_l+dx].dst;
-				sn = Edges[e_l+dx].SeqNo; //printf("HERE %d %d %d|", V, j, sn);
-				if (Mask[sn] == 1 || Mask[sn] == 0xFF ) 
-					if(!Visited[tx][j]) {
-						Visited[tx][j] = true;
-						rear++; 
-						Queue[tx][rear] = j; 
-						Parent[tx][j]=V;
-					}
-				if (Visited[tx][t]) {
-					OP =true; 
-					break;
-				}
-			}
-			if (Visited[tx][t]) {
-				OP =true; 
-				break;
-			} //if (TID == 13) for (int i = 0; i<N; i++) printf("%d /",Queue[i]); printf("front %d rear %d ///", front, rear);
-		}  // While
+		
+		OP = Opermask_parents(N,NewMask,Nodes,Edges, src, t, Visited[tx], Parent[tx], Queue[tx])
+		
 		if (OP){ // Climb up the path from t to s; 
 			int i = Parent[tx][t]; 
 			int j = t; 
