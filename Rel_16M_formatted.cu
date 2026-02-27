@@ -137,7 +137,7 @@ __host__ __device__ void PrintSeqNos(int N, int M , N_Type Nodes[], E_Type Edges
 	    printf("\n Edges:  "); for (int i=0; i<M; i++)  printf(" %d %d %f :", Edges[i].SeqNo, Edges[i].dst, Edges[i].prob);
 	    printf ("\n*********************\n"); 
 	  }
-__device__ __forceinline__ bool Opermask(int N,unsigned char *NewMask,N_Type Nodes[],E_Type Edges[], int src, int t, bool *Visited, short Parent[], short Queue[]) {
+__device__ __forceinline__ bool Opermask(int N,unsigned char *NewMask,N_Type Nodes[],E_Type Edges[], int src, int t, bool *Visited, short Queue[]) {
 		for (int i=0; i <N; i++) 
 			Visited[i]= false; 
 		bool OP = false; 
@@ -311,9 +311,28 @@ __global__  void TC( Graph_Type *G, N_Type Nodes[], E_Type Edges[], float Prob[]
 		OP = Opermask_parents(N,Mask,Nodes,Edges, src, t, Visited[tx], Parent[tx], Queue[tx]);
 		
 		if (OP){ // Climb up the path from t to s; 
+			
+			for (int i = 0; i< MaskSize; i++) 
+				NewMask[i] = Mask[i]; 
+			
+			int i = Parent[tx][t]; 
+			int j = t; 
+			while ( j != src) {
+				sn = Seq_No(i,j, Nodes, Edges);
+				if( Mask[sn] == 0xFF)  { 
+					NewMask[sn] = 0; 
+				}
+				j = i; 
+				i = Parent[tx][j];
+			}
+			
+			bool flag = Opermask(N,NewMask,Nodes,Edges, from, t, Visited[tx], Queue[tx]); 
+			
+			
+			
+			
 			int from = Parent[tx][t]; 
 			int to = t; 
-			TQTOP= -1; 
 			while ( to != src) {
 				sn = Seq_No(from,to, Nodes, Edges);
 				if( Mask[sn] == 0xFF)  { 
@@ -323,7 +342,7 @@ __global__  void TC( Graph_Type *G, N_Type Nodes[], E_Type Edges[], float Prob[]
 					NewMask[sn] = 0; 
 					NewMULT = NewMULT * (1 - Prob[sn]);
 					//for (int i = 0; i < MaskSize; i++) printf("%2x**",NewMask[i]); printf("\n");
-					if(Opermask(N,NewMask,Nodes,Edges, from, t, Visited[tx], Parent[tx], Queue[tx])) { // DOES NOT HAVE A CUT
+					if(flag || Opermask(N,NewMask,Nodes,Edges, from, t, Visited[tx], Queue[tx])) { // DOES NOT HAVE A CUT
 						//printf ("OPER\n");
 						if (Q_SIZE < MAX_Q_SIZE) { 
 							MQXRear++;  
@@ -527,4 +546,5 @@ int main(){
 }
 
 
+	
 	
