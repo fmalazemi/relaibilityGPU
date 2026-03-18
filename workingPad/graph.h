@@ -49,7 +49,8 @@ inline GraphHost graph_load(const char* filename, int src, int dst)
     if (!f) { fprintf(stderr, "Cannot open %s\n", filename); exit(1); }
 
     int N, E_file;
-    if (fscanf(f, "%d %d", &N, &E_file) != 2) {
+    char graphType; 
+    if (fscanf(f, "%d %d %c", &N, &E_file, &graphType) != 3) {
         fprintf(stderr, "Bad header in %s\n", filename); exit(1);
     }
 
@@ -89,6 +90,7 @@ inline GraphHost graph_load(const char* filename, int src, int dst)
     }
 
     int E = (int)edge_map.size();
+    if(graphType == 'U') E_file = (int)(E_file/2); 
     if (E != E_file)
         fprintf(stderr, "Warning: header E=%d, found %d unique edges\n",
                 E_file, E);
