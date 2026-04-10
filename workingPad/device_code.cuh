@@ -86,6 +86,7 @@ int bfs_reachable(
     volatile uint32_t* frontier,      /* node_words uint32_t */
     volatile uint32_t* visited,       /* node_words uint32_t */
     volatile uint32_t* next_frontier, /* node_words uint32_t */
+    int* parent,
     int node_words)
 {
     int lane = threadIdx.x & 31;
@@ -96,11 +97,15 @@ int bfs_reachable(
         visited[i]       = 0;
         next_frontier[i] = 0;
     }
+    for (int i = lane; i < N; i += 32){
+	parent[lane] = -1; 	
+    }
     __syncwarp();
 
     if (lane == 0) {
         frontier[src >> 5]  = 1u << (src & 31);
         visited[src >> 5]   = 1u << (src & 31);
+	parent[src] = src;
     }
     __syncwarp();
 
@@ -136,9 +141,8 @@ int bfs_reachable(
 
                     int ok = (st == EDGE_WORKING) ||
                              (allow_unknown && st == EDGE_UNKNOWN);
-                    if (!ok) continue;
 
-                    if (!bitmask_test(visited, nbr)) {
+                    if (ok && atomicCAS(&parent[nbr], -1, node) == -1){
                         bitmask_set_atomic(next_frontier, nbr);
                         bitmask_set_atomic(visited,       nbr);
                     }
