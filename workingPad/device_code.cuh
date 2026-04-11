@@ -278,7 +278,8 @@ int path_edge_sweep_warp(
     /* shared scratch */
     int*         s_path_nodes,   /* [MAX_PATH_LEN] */
     int*         s_path_eids,    /* [MAX_PATH_LEN] */
-    int*         s_path_len)     /* [1]            */
+    int*         s_path_len,      /* [1]            */
+    DeviceStats  stats)
 {
     int lane = threadIdx.x & 31;
 
@@ -391,7 +392,28 @@ int path_edge_sweep_warp(
         int pos = atomicAdd(wq->count, 1);
         if (pos < wq->capacity)
             wq->buffer[pos] = child;
+        
+        if(hop == n_hops-1){
+            //mask_set(&child.mask, eid_i, EDGE_WORKING);
+            child.log_prob += __ldg(&g_log_p[eid_i]);
+            child.log_prob -= __ldg(&g_log_q[eid_i]);
+            
+            int slot = atomicAdd(stats.terminal_count, 1);
+            if (slot < stats.terminal_capacity)
+                stats.terminal_log_probs[slot] = child.log_prob;
+            atomicAdd(stats.paths_enumerated, 1ULL);
+
+            
+            
+        }
+        
+        
+        
     }
+        
+    
+    
+    
     __syncwarp();
 
     /* Warp-reduce n_unknown so all lanes agree on the return value.  */
