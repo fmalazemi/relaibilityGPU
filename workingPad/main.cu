@@ -65,12 +65,22 @@ void atomicAddDouble(double* addr, double val)
 /*                                                                    */
 /*  Each block = 1 warp (32 threads).                                 */
 /*  1. Dequeue one WorkItem from the highest-priority read queue.     */
-/*  2. Optimistic BFS → prune dead ends.                              */
-/*  3. Confirmed  BFS → detect terminal successes.                    */
-/*  4. Otherwise select pivot, generate 2 children, enqueue.          */
+/*  2. Truncation check.                                              */
+/*  3. Optimistic BFS – prune dead ends; fills parent[] array.        */
+/*  4. Confirmed  BFS – detect terminal successes.                    */
+/*  5. Path-edge sweep – warp-parallel child generation.              */
+/*                                                                    */
+/*  Shared-memory layout (base → top):                                */
+/*    uint32_t  s_frontier     [node_words]                           */
+/*    uint32_t  s_visited      [node_words]                           */
+/*    uint32_t  s_next_frontier[node_words]                           */
+/*    uint32_t  s_mask_bits    [MAX_MASK_WORDS]                       */
+/*    float     s_log_prob     [1]                                    */
+/*    int       s_parent       [g_N]          (optimistic BFS output) */
+/*    int       s_path_nodes   [MAX_PATH_LEN] (path reconstruction)   */
+/*    int       s_path_eids    [MAX_PATH_LEN] (edge ids on path)      */
+/*    int       s_path_len     [1]                                    */
 /* ================================================================== */
-
-/* shared-memory layout: mask + BFS bitmasks */
 __global__ void factoring_kernel(
     /* read queues (3) */
     ReadQueue   rq0, ReadQueue  rq1, ReadQueue  rq2,
@@ -95,19 +105,22 @@ __global__ void factoring_kernel(
 
     int node_words = (g_N + 31) >> 5;
 
-    /* shared memory:
-       [0 .. node_words-1]              frontier
-       [node_words .. 2*node_words-1]   visited
-       [2*node_words .. 3*node_words-1] next_frontier
-       [3*node_words .. 3*node_words + MAX_MASK_WORDS - 1]  work mask copy
-       [last float]                                         work log_prob  */
+    /* ---- shared-memory layout ---- */
     extern __shared__ uint32_t smem[];
+
     volatile uint32_t* s_frontier      = smem;
     volatile uint32_t* s_visited       = smem + node_words;
     volatile uint32_t* s_next_frontier = smem + 2 * node_words;
     uint32_t*          s_mask_bits     = (uint32_t*)(smem + 3 * node_words);
     float*             s_log_prob_ptr  = (float*)(s_mask_bits + MAX_MASK_WORDS);
-    __shared__ int* parent[25]; 
+
+    /* parent[], path_nodes[], path_eids[], path_len sit after the    */
+    /* existing region.  Cast via char* to avoid alignment issues.    */
+    int* s_parent     = (int*)(s_log_prob_ptr + 1);          /* [g_N]          */
+    int* s_path_nodes = s_parent     + g_N;                  /* [MAX_PATH_LEN] */
+    int* s_path_eids  = s_path_nodes + MAX_PATH_LEN;         /* [MAX_PATH_LEN] */
+    int* s_path_len   = s_path_eids  + MAX_PATH_LEN;         /* [1]            */
+
     /* ---- main work loop ---- */
     for (;;) {
         /* ---- 1. DEQUEUE ---- */
@@ -140,8 +153,8 @@ __global__ void factoring_kernel(
 
         __syncwarp();
 
-        /* read mask from shared memory into a register-local copy */
-        EdgeMask  cur_mask;
+        /* read mask + log_prob into registers (all lanes) */
+        EdgeMask cur_mask;
         for (int w = 0; w < MAX_MASK_WORDS; w++)
             cur_mask.bits[w] = s_mask_bits[w];
         float cur_log_prob = *s_log_prob_ptr;
@@ -151,84 +164,56 @@ __global__ void factoring_kernel(
             atomicAdd(stats.nodes_processed, 1ULL);
 
         /* ---- 2. TRUNCATION CHECK ---- */
-        if (cur_log_prob < truncation_log_eps){
-            /* prune – accumulate into ESP */
+        if (cur_log_prob < truncation_log_eps) {
             if (lane == 0)
-                atomicAddDouble(stats.esp_truncated, exp((double)cur_log_prob));
+                atomicAddDouble(stats.esp_truncated,
+                                exp((double)cur_log_prob));
             continue;
         }
 
-        /* ---- 3. OPTIMISTIC BFS  (WORKING + UNKNOWN edges) ---- */
+        /* ---- 3. OPTIMISTIC BFS  (WORKING + UNKNOWN edges) ----     */
+        /*  Pass s_parent so the BFS records predecessors.  The array */
+        /*  is initialised to -1 inside bfs_reachable before use.     */
         int opt_reach = bfs_reachable(
             g_row_ptr, g_col_idx, g_edge_id, g_N,
             &cur_mask, g_src, g_dst,
             /*allow_unknown=*/ 1,
-            (volatile uint32_t*)s_frontier,
-            (volatile uint32_t*)s_visited,
-            (volatile uint32_t*)s_next_frontier,
-            node_words);
+            s_frontier, s_visited, s_next_frontier,
+            node_words,
+            /*parent=*/ (volatile int*)s_parent);
 
         if (!opt_reach) {
             /* dst unreachable even optimistically → dead end */
             continue;
         }
 
-        /* ---- 4. CONFIRMED BFS  (WORKING edges only) ---- */
-        int conf_reach = bfs_reachable(
-            g_row_ptr, g_col_idx, g_edge_id, g_N,
-            &cur_mask, g_src, g_dst,
-            /*allow_unknown=*/ 0,
-            (volatile uint32_t*)s_frontier,
-            (volatile uint32_t*)s_visited,
-            (volatile uint32_t*)s_next_frontier,
-            node_words);
+        
+        /* ---- 5. PATH-EDGE SWEEP ----                                *
+         *                                                             *
+         * The optimistic BFS found a src→dst path and recorded it in *
+         * s_parent[].  path_edge_sweep_warp:                         *
+         *   - lane 0   reconstructs the path into s_path_nodes[]     *
+         *   - all lanes resolve edge ids (CSR lookup, phase 2)       *
+         *   - all lanes build + enqueue one child per UNKNOWN edge   *
+         *     on the path (phase 3)                                  *
+         *                                                             *
+         * The return value is the number of UNKNOWN edges found.     *
+         * If 0 (all WORKING), the confirmed BFS above would already  *
+         * have caught it; this branch is unreachable in practice but *
+         * we guard with a fallback select_pivot for safety.          */
+        int n_spawned = path_edge_sweep_warp(
+            g_row_ptr, g_col_idx, g_edge_id,
+            g_src, g_dst,
+            &cur_mask, cur_log_prob,
+            (const volatile int*)s_parent,
+            g_log_p, g_log_q,
+            &wq0, &wq1, &wq2,
+            thresh_high, thresh_low,
+            s_path_nodes, s_path_eids, s_path_len,
+            stats);
 
-        if (conf_reach) {
-            /* ---- TERMINAL SUCCESS ---- */
-            if (lane == 0) {
-                int slot = atomicAdd(stats.terminal_count, 1);
-                if (slot < stats.terminal_capacity)
-                    stats.terminal_log_probs[slot] = cur_log_prob;
-                atomicAdd(stats.paths_enumerated, 1ULL);
-            }
-            continue;
-        }
+        
 
-        /* ---- 5. PIVOT & BRANCH ---- */
-        int pivot = select_pivot(&cur_mask, g_log_p, g_E);
-        if (pivot < 0) continue;   /* shouldn't happen */
-
-        /* create two children */
-        if (lane == 0) {
-            WorkItem child_w = { cur_mask, cur_log_prob + __ldg(&g_log_p[pivot]) };
-            mask_set(&child_w.mask, pivot, EDGE_WORKING);
-
-            WorkItem child_f = { cur_mask, cur_log_prob + __ldg(&g_log_q[pivot]) };
-            mask_set(&child_f.mask, pivot, EDGE_FAILED);
-
-            /* enqueue child_w */
-            {
-                float lp = child_w.log_prob;
-                WriteQueue* wq;
-                if      (lp > thresh_high) wq = &wq0;
-                else if (lp > thresh_low)  wq = &wq1;
-                else                       wq = &wq2;
-                int pos = atomicAdd(wq->count, 1);
-                if (pos < wq->capacity)
-                    wq->buffer[pos] = child_w;
-            }
-            /* enqueue child_f */
-            {
-                float lp = child_f.log_prob;
-                WriteQueue* wq;
-                if      (lp > thresh_high) wq = &wq0;
-                else if (lp > thresh_low)  wq = &wq1;
-                else                       wq = &wq2;
-                int pos = atomicAdd(wq->count, 1);
-                if (pos < wq->capacity)
-                    wq->buffer[pos] = child_f;
-            }
-        }
     } /* end work loop */
 }
 
@@ -334,15 +319,13 @@ static EdgeMask build_initial_mask(const GraphHost& g)
     int pre_contract = 0, pre_delete = 0;
     for (int e = 0; e < g.E; e++) {
         if (g.prob[e] <= 0.0f) {
-            /* always failed */
             int bp = e * 2, w = bp / 32, o = bp % 32;
-            m.bits[w] &= ~(0x3u << o);   /* set 0b00 */
+            m.bits[w] &= ~(0x3u << o);   /* set 0b00 = FAILED  */
             pre_delete++;
         } else if (g.prob[e] >= 1.0f) {
-            /* always working */
             int bp = e * 2, w = bp / 32, o = bp % 32;
             m.bits[w] &= ~(0x3u << o);
-            m.bits[w] |=  (0x1u << o);   /* set 0b01 */
+            m.bits[w] |=  (0x1u << o);   /* set 0b01 = WORKING */
             pre_contract++;
         }
     }
@@ -444,12 +427,11 @@ int main(int argc, char** argv)
 
     /* ---- allocate per-queue dequeue counters ---- */
     int* d_next_idx[NUM_QUEUES];
-    for (int q = 0; q < NUM_QUEUES; q++) {
+    for (int q = 0; q < NUM_QUEUES; q++)
         CUDA_CHECK(cudaMalloc(&d_next_idx[q], sizeof(int)));
-    }
 
     /* ---- allocate stats ---- */
-    int terminal_capacity = cfg.queue_capacity;   /* generous */
+    int terminal_capacity = cfg.queue_capacity;
     DeviceStats dstats;
     CUDA_CHECK(cudaMalloc(&dstats.terminal_log_probs,
                            terminal_capacity * sizeof(float)));
@@ -477,14 +459,43 @@ int main(int argc, char** argv)
     int device_id = 0;
     cudaDeviceProp prop;
     CUDA_CHECK(cudaGetDeviceProperties(&prop, device_id));
-    int num_sms  = prop.multiProcessorCount;
-    int n_blocks = num_sms * 2;            /* 2 warps per SM */
+    int num_sms           = prop.multiProcessorCount;
+    int n_blocks          = num_sms * 2;   /* 2 warps per SM */
     int threads_per_block = 32;            /* exactly 1 warp */
 
     int node_words = (gh.N + 31) / 32;
-    /* shared memory: 3*node_words + MAX_MASK_WORDS + 1 float */
-    int smem_bytes = (3 * node_words + MAX_MASK_WORDS) * sizeof(uint32_t)
-                   + sizeof(float);
+
+    /* ---- shared-memory size ----
+     *
+     * Region                          Elements          Bytes
+     * -------                         --------          -----
+     * s_frontier                       node_words        × 4
+     * s_visited                        node_words        × 4
+     * s_next_frontier                  node_words        × 4
+     * s_mask_bits                      MAX_MASK_WORDS    × 4
+     * s_log_prob                       1                 × 4  (float)
+     * s_parent         [gh.N]          gh.N              × 4  (int)
+     * s_path_nodes     [MAX_PATH_LEN]  MAX_PATH_LEN      × 4  (int)
+     * s_path_eids      [MAX_PATH_LEN]  MAX_PATH_LEN      × 4  (int)
+     * s_path_len       [1]             1                 × 4  (int)
+     */
+    int smem_bytes =
+        (3 * node_words + MAX_MASK_WORDS) * (int)sizeof(uint32_t)
+        + (int)sizeof(float)                        /* s_log_prob      */
+        + gh.N          * (int)sizeof(int)          /* s_parent        */
+        + MAX_PATH_LEN  * (int)sizeof(int)          /* s_path_nodes    */
+        + MAX_PATH_LEN  * (int)sizeof(int)          /* s_path_eids     */
+        + (int)sizeof(int);                         /* s_path_len      */
+
+    /* Guard: reduce blocks if smem exceeds device limit. */
+    if (smem_bytes > (int)prop.sharedMemPerBlock) {
+        fprintf(stderr,
+            "WARNING: smem_bytes=%d exceeds sharedMemPerBlock=%d.\n"
+            "  Consider reducing MAX_PATH_LEN or graph size.\n",
+            smem_bytes, (int)prop.sharedMemPerBlock);
+        /* clamp to 1 block – still correct, just slower */
+        n_blocks = 1;
+    }
 
     printf("Launch config: %d blocks × %d threads, smem=%d B, SMs=%d\n",
            n_blocks, threads_per_block, smem_bytes, num_sms);
@@ -498,8 +509,8 @@ int main(int argc, char** argv)
     /* ================================================================ */
     /*  Iterative kernel launch loop                                    */
     /* ================================================================ */
-    int iteration = 0;
-    long long total_read = 0;
+    int    iteration    = 0;
+    long long total_read   = 0;
     size_t max_rss_items = 0;
 
     for (;;) {
@@ -511,7 +522,6 @@ int main(int argc, char** argv)
 
         total_read += total_items;
 
-        /* track peak queue occupancy */
         if ((size_t)total_items > max_rss_items)
             max_rss_items = (size_t)total_items;
 
@@ -584,8 +594,8 @@ int main(int argc, char** argv)
                            cudaMemcpyDeviceToHost));
 
     /* ---- compute final reliability ---- */
-    double log_R = log_sum_exp(h_terminal_lps.data(), h_terminal_count);
-    double R     = (h_terminal_count > 0) ? exp(log_R) : 0.0;
+    double log_R      = log_sum_exp(h_terminal_lps.data(), h_terminal_count);
+    double R          = (h_terminal_count > 0) ? exp(log_R) : 0.0;
     double R_with_esp = R + h_esp;
 
     size_t rss_bytes = max_rss_items * sizeof(WorkItem);
