@@ -107,7 +107,7 @@ __global__ void factoring_kernel(
     volatile uint32_t* s_next_frontier = smem + 2 * node_words;
     uint32_t*          s_mask_bits     = (uint32_t*)(smem + 3 * node_words);
     float*             s_log_prob_ptr  = (float*)(s_mask_bits + MAX_MASK_WORDS);
-    int* parent[25]; 
+    __shared__ int* parent[25]; 
     /* ---- main work loop ---- */
     for (;;) {
         /* ---- 1. DEQUEUE ---- */
