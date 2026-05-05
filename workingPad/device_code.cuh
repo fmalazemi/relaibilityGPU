@@ -3,6 +3,8 @@
 
 #include "common.h"
 
+#include<cassert>
+
 /* ================================================================== */
 /*  Mask operations  (device inline)                                  */
 /* ================================================================== */
@@ -108,11 +110,12 @@ int bfs_reachable(
     __syncwarp();
 
     /* ---- initialise parent array ---- */
-    if (parent != NULL) {
-        for (int i = lane; i < N; i += 32)
-            parent[i] = -1;
-        __syncwarp();
-    }
+    assert(parent != NULL && "Parent Array is NULL (device_code.cuh)");
+    for (int i = lane; i < N; i += 32)
+        parent[i] = -1;
+    __syncwarp();
+    
+    
 
     if (lane == 0) {
         frontier[src >> 5] = 1u << (src & 31);
@@ -163,8 +166,8 @@ int bfs_reachable(
                            Multiple lanes may race on the same nbr but
                            any valid predecessor is correct for our
                            purposes (we only need one src→dst path).  */
-                        if (parent != NULL)
-                            parent[nbr] = node;
+                        
+                        parent[nbr] = node;
                     }
                 }
             }
@@ -181,6 +184,9 @@ int bfs_reachable(
         if (!__any_sync(0xFFFFFFFF, any)) return 0; /* no progress */
 
         /* swap frontier ← next_frontier */
+        /* You can optimize here by swaping the pointers
+            We will do it later
+        */
         for (int i = lane; i < node_words; i += 32)
             frontier[i] = next_frontier[i];
         __syncwarp();

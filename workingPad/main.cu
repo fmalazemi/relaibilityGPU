@@ -131,6 +131,7 @@ int path_edge_sweep_warp(
     *    s_path_nodes[path_len-1]  = g_dst                           *
     * ============================================================== */
     if (lane == 0) {
+        //We can parallize this block, i think? 
         int len = 0;
         
         /* collect dst → src */
@@ -176,6 +177,8 @@ int path_edge_sweep_warp(
             }
         }
         s_path_eids[hop] = eid;
+        assert(eid >= 0 && "CSR scan failed to find path edge — parent[] inconsistent with CSR");
+        
     }
     __syncwarp();
     
@@ -200,7 +203,8 @@ int path_edge_sweep_warp(
         int eid_i = s_path_eids[hop];
         
         /* skip WORKING edges (already contracted) and gap sentinels  */
-        if (eid_i < 0 || mask_get(cur_mask, eid_i) != EDGE_UNKNOWN)
+        
+        if (mask_get(cur_mask, eid_i) != EDGE_UNKNOWN)
             continue;
         
         n_unknown++;   /* local count; we just need > 0 check         */
@@ -213,7 +217,7 @@ int path_edge_sweep_warp(
         /* commit all UNKNOWN hops before hop i → WORKING             */
         for (int h = 0; h < hop; h++) {
             int eid_h = s_path_eids[h];
-            if (eid_h >= 0 && mask_get(cur_mask, eid_h) == EDGE_UNKNOWN) {
+            if (mask_get(cur_mask, eid_h) == EDGE_UNKNOWN) {
                 mask_set(&child.mask, eid_h, EDGE_WORKING);
                 child.log_prob += __ldg(&g_log_p[eid_h]);
             }
@@ -232,7 +236,7 @@ int path_edge_sweep_warp(
         int pos = atomicAdd(wq->count, 1);
         if (pos < wq->capacity)
             wq->buffer[pos] = child;
-        
+        /*
         if(hop == n_hops-1){
             //mask_set(&child.mask, eid_i, EDGE_WORKING);
             child.log_prob += __ldg(&g_log_p[eid_i]);
@@ -242,19 +246,43 @@ int path_edge_sweep_warp(
             if (slot < stats.terminal_capacity)
                 stats.terminal_log_probs[slot] = child.log_prob;
             atomicAdd(stats.paths_enumerated, 1ULL);
-            
-            
-            
         }
+        */
         
         
         
     }
     
-    
-    
-    
     __syncwarp();
+
+    /* ---- emit success leaf in parallel ---- *
+    *  All UNKNOWN hops on the path are set to WORKING (conceptually).
+    *  We only need their log_p sum since cur_mask is read-only here.
+    */
+    float leaf_partial = 0.0f;
+    
+    for (int h = lane; h < n_hops; h += 32) {
+        int eid_h = s_path_eids[h];
+        assert(eid_h < 0); 
+        if (mask_get(cur_mask, eid_h) == EDGE_UNKNOWN) {
+            leaf_partial += __ldg(&g_log_p[eid_h]);
+        }
+    }
+    
+    /* warp reduction: sum partials across all 32 lanes */
+    for (int off = 16; off > 0; off >>= 1)
+        leaf_partial += __shfl_down_sync(0xFFFFFFFF, leaf_partial, off);
+    
+    /* lane 0 holds the full sum — emit the terminal */
+    if (lane == 0) {
+        float leaf_lp = cur_log_prob + leaf_partial;
+        int slot = atomicAdd(stats.terminal_count, 1);
+        if (slot < stats.terminal_capacity)
+            stats.terminal_log_probs[slot] = leaf_lp;
+        atomicAdd(stats.paths_enumerated, 1ULL);
+    }
+
+
     
     /* Warp-reduce n_unknown so all lanes agree on the return value.  */
     for (int off = 16; off > 0; off >>= 1)
