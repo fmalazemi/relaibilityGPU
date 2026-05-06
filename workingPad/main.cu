@@ -110,9 +110,15 @@ int path_edge_sweep_warp(
     const float* g_log_p,
     const float* g_log_q,
     /* write queues */
+    
+    #if !MULT_QUEUE
+    WriteQueue*  wq0,
+    #else 
     WriteQueue*  wq0,
     WriteQueue*  wq1,
     WriteQueue*  wq2,
+    #endif
+    
     float        thresh_high,
     float        thresh_low,
     /* shared scratch */
@@ -228,14 +234,20 @@ int path_edge_sweep_warp(
         child.log_prob += __ldg(&g_log_q[eid_i]);
         
         /* ---- select queue by log-probability ---- */
+        
+        #if !MULT_QUEUE   
+        WriteQueue* wq = wq0; 
+        #else
         WriteQueue* wq;
         if      (child.log_prob > thresh_high) wq = wq0;
         else if (child.log_prob > thresh_low)  wq = wq1;
         else                                   wq = wq2;
+        #endif
         
         int pos = atomicAdd(wq->count, 1);
         if (pos < wq->capacity)
             wq->buffer[pos] = child;
+        //else add as per of eps
         /*
         if(hop == n_hops-1){
             //mask_set(&child.mask, eid_i, EDGE_WORKING);
@@ -263,7 +275,7 @@ int path_edge_sweep_warp(
     
     for (int h = lane; h < n_hops; h += 32) {
         int eid_h = s_path_eids[h];
-        assert(eid_h < 0); 
+        assert(eid_h >= 0); 
         if (mask_get(cur_mask, eid_h) == EDGE_UNKNOWN) {
             leaf_partial += __ldg(&g_log_p[eid_h]);
         }
@@ -327,9 +339,14 @@ int path_edge_sweep_warp(
 /* ================================================================== */
 __global__ void factoring_kernel(
     /* read queues (3) */
+    #if !MULT_QUEUE
+    ReadQueue   rq0, 
+    WriteQueue  wq0, 
+    #else
     ReadQueue   rq0, ReadQueue  rq1, ReadQueue  rq2,
-    /* write queues (3) */
     WriteQueue  wq0, WriteQueue wq1, WriteQueue wq2,
+    #endif
+    
     /* graph */
     const int*   g_row_ptr,
     const int*   g_col_idx,
@@ -345,7 +362,7 @@ __global__ void factoring_kernel(
     /* stats */
     DeviceStats  stats)
 {
-    int lane = threadIdx.x;   /* 0..31 */
+    int lane = threadIdx.x & 31;   /* 0..31 */
 
     int node_words = (g_N + 31) >> 5;
 
@@ -373,8 +390,15 @@ __global__ void factoring_kernel(
 
         if (lane == 0) {
             /* try Q_HIGH first */
+            
+            #if !MULT_QUEUE
             int idx = atomicAdd(rq0.next_idx, 1);
             if (idx < rq0.size) { item = rq0.buffer[idx]; got = 1; }
+            
+            #else 
+            int idx = atomicAdd(rq0.next_idx, 1);
+            if (idx < rq0.size) { item = rq0.buffer[idx]; got = 1; }
+            
             if (!got) {
                 idx = atomicAdd(rq1.next_idx, 1);
                 if (idx < rq1.size) { item = rq1.buffer[idx]; got = 1; }
@@ -384,13 +408,14 @@ __global__ void factoring_kernel(
                 if (idx < rq2.size) { item = rq2.buffer[idx]; got = 1; }
             }
             if (got) {
-                /* copy to shared mem for warp-wide access */
+                //copy to shared mem for warp-wide access 
                 for (int w = 0; w < g_num_mask_words; w++)
                     s_mask_bits[w] = item.mask.bits[w];
                 for (int w = g_num_mask_words; w < MAX_MASK_WORDS; w++)
                     s_mask_bits[w] = 0;
                 *s_log_prob_ptr = item.log_prob;
             }
+            #endif 
         }
         got = __shfl_sync(0xFFFFFFFF, got, 0);
         if (!got) return;   /* nothing left in any read queue */
@@ -451,7 +476,12 @@ __global__ void factoring_kernel(
             &cur_mask, cur_log_prob,
             (const volatile int*)s_parent,
             g_log_p, g_log_q,
+            #if !MULT_QUEUE
+            &wq0, 
+            #else
             &wq0, &wq1, &wq2,
+            #endif 
+
             thresh_high, thresh_low,
             s_path_nodes, s_path_eids, s_path_len,
             stats);
@@ -786,8 +816,12 @@ int main(int argc, char** argv)
 
         /* launch kernel */
         factoring_kernel<<<n_blocks, threads_per_block, smem_bytes>>>(
+            #if !MULT_QUEUE
+            rq[0], wq[0],
+            #else 
             rq[0], rq[1], rq[2],
             wq[0], wq[1], wq[2],
+            #endif
             gd.row_ptr, gd.col_idx, gd.edge_id,
             gd.log_p,   gd.log_q,
             gd.N, gd.E, gd.src, gd.dst,

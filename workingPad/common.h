@@ -27,7 +27,12 @@
 #define Q_HIGH 0
 #define Q_MED  1
 #define Q_LOW  2
-#define NUM_QUEUES 3
+#define NUM_QUEUES 1
+
+#ifndef MULT_QUEUE
+#define MULT_QUEUE 0
+#endif
+
 
 /* -------- Default parameters -------- */
 #define DEFAULT_QUEUE_CAPACITY  (1 << 20)   /* 1 M items per queue   */
