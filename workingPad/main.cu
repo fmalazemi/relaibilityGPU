@@ -275,6 +275,153 @@ int path_edge_sweep_warp(
     return n_unknown;
 }
 
+/* ================================================================== */
+/*  Path-pivot factoring  (warp-parallel, two-way branching)         */
+/*                                                                    */
+/*  1. Reconstruct the src→dst path from the BFS parent[] array.     */
+/*  2. Find the UNKNOWN edge on the path with the highest log_p.    */
+/*  3. If no UNKNOWN edge exists  → path is all-WORKING → terminal   */
+/*     success: add exp(cur_log_prob) to R and return.               */
+/*  4. Otherwise fork two children:                                  */
+/*       WORKING:  mask[e] = WORKING,  log_prob += log_p[e]          */
+/*       FAILED :  mask[e] = FAILED,   log_prob += log_q[e]          */
+/*                                                                    */
+/*  PHASE 1 (lane 0)  : walk parent[] dst → src                      */
+/*  PHASE 2 (all)     : CSR lookup + per-lane local argmax          */
+/*  PHASE 3 (all)     : warp reduction → broadcast pivot            */
+/*  PHASE 4 (lanes 0,1): build + enqueue the two children           */
+/*                                                                    */
+/*  Returns 1 if a pivot was found and forked, 0 if terminal.        */
+/* ================================================================== */
+__device__
+int path_edge_sweep_warp_fork_best_edge(
+    /* graph */
+    const int*   g_row_ptr,
+    const int*   g_col_idx,
+    const int*   g_edge_id_arr,
+    int          g_src,
+    int          g_dst,
+    /* current item (read-only; each lane has its own register copy) */
+    const EdgeMask* cur_mask,
+    float           cur_log_prob,
+    /* BFS parent array filled by the optimistic BFS                 */
+    const volatile int* s_parent,
+    /* edge probabilities */
+    const float* g_log_p,
+    const float* g_log_q,
+    /* single write queue */
+    WriteQueue*  wq,
+    /* shared scratch */
+    int*         s_path_nodes,   /* [MAX_PATH_LEN] */
+    int*         s_path_eids,    /* [MAX_PATH_LEN] – unused now      */
+    int*         s_path_len,     /* [1]            */
+    DeviceStats  stats)
+{
+    int lane = threadIdx.x & 31;
+    
+    /* ============================================================== *
+    *  PHASE 1 – lane 0 walks parent[] dst → src                    *
+    * ============================================================== */
+    if (lane == 0) {
+        int len = 0;
+        int v   = g_dst;
+        while (v != -1 && len < MAX_PATH_LEN) {
+            s_path_nodes[len++] = v;
+            if (v == g_src) break;
+            v = s_parent[v];
+        }
+        *s_path_len = len;
+    }
+    __syncwarp();
+    
+    int path_len = *s_path_len;
+    int n_hops   = path_len - 1;
+    if (n_hops <= 0) return 0;
+    
+    /* ============================================================== *
+    *  PHASE 2 – per-lane local argmax over UNKNOWN path edges      *
+    *                                                                *
+    *  Each lane handles a stride-32 subset of hops.  For each hop  *
+    *  it resolves the edge id via CSR scan and, if UNKNOWN,        *
+    *  tracks the highest log_p seen in registers.                  *
+    * ============================================================== */
+    int   best_edge = -1;
+    float best_lp   = -1e30f;
+    
+    for (int hop = lane; hop < n_hops; hop += 32) {
+        int u = s_path_nodes[hop];
+        int v = s_path_nodes[hop + 1];
+        
+        /* CSR scan for the (u, v) edge id */
+        int eid = -1;
+        int rs  = __ldg(&g_row_ptr[u]);
+        int re  = __ldg(&g_row_ptr[u + 1]);
+        for (int j = rs; j < re; j++) {
+            if (__ldg(&g_col_idx[j]) == v) {
+                eid = __ldg(&g_edge_id_arr[j]);
+                break;
+            }
+        }
+        
+        if (eid >= 0 && mask_get(cur_mask, eid) == EDGE_UNKNOWN) {
+            float lp = __ldg(&g_log_p[eid]);
+            if (lp > best_lp) { best_lp = lp; best_edge = eid; }
+        }
+    }
+    
+    /* ============================================================== *
+    *  PHASE 3 – warp reduction: argmax across the 32 lanes         *
+    * ============================================================== */
+    for (int off = 16; off > 0; off >>= 1) {
+        float o_lp = __shfl_down_sync(0xFFFFFFFF, best_lp,   off);
+        int   o_e  = __shfl_down_sync(0xFFFFFFFF, best_edge, off);
+        if (o_lp > best_lp) { best_lp = o_lp; best_edge = o_e; }
+    }
+    best_edge = __shfl_sync(0xFFFFFFFF, best_edge, 0);
+    best_lp   = __shfl_sync(0xFFFFFFFF, best_lp,   0);
+    
+    /* ============================================================== *
+    *  PHASE 4 – act on the pivot                                   *
+    * ============================================================== */
+    if (best_edge < 0) {
+        /* No UNKNOWN edge on the path → all-WORKING terminal.        *
+        * Add this branch's probability mass directly to R.          */
+        if (lane == 0) {
+            atomicAddDouble(stats.R, exp((double)cur_log_prob));
+            atomicAdd(stats.paths_enumerated, 1ULL);
+        }
+        return 0;
+    }
+    
+    /* Two-way fork: lane 0 → WORKING child, lane 1 → FAILED child.   */
+    if (lane < 2) {
+        WorkItem child;
+        child.mask     = *cur_mask;
+        child.log_prob = cur_log_prob;
+        
+        if (lane == 0) {
+            /* WORKING branch — multiply by p_e */
+            mask_set(&child.mask, best_edge, EDGE_WORKING);
+            child.log_prob += best_lp;                       /* = log_p[e] */
+        } else {
+            /* FAILED branch — multiply by 1 - p_e */
+            mask_set(&child.mask, best_edge, EDGE_FAILED);
+            child.log_prob += __ldg(&g_log_q[best_edge]);
+        }
+        
+        /* enqueue, or fold into ESP if the queue is full */
+        int pos = atomicAdd(wq->count, 1);
+        if (pos < wq->capacity) {
+            wq->buffer[pos] = child;
+        } else {
+            atomicAddDouble(stats.esp_truncated,
+                exp((double)child.log_prob));
+        }
+    }
+    
+    return 1;
+}
+
 
 
 
@@ -413,7 +560,17 @@ __global__ void factoring_kernel(
          *   - all lanes build + enqueue one child per UNKNOWN edge   *
          *     on the path (phase 3) – terminal cases go to R,        *
          *     queue-full cases go to ESP.                            */
-        int n_spawned = path_edge_sweep_warp(
+        /*int n_spawned = path_edge_sweep_warp(
+            g_row_ptr, g_col_idx, g_edge_id,
+            g_src, g_dst,
+            &cur_mask, cur_log_prob,
+            (const volatile int*)s_parent,
+            g_log_p, g_log_q,
+            &wq,
+            s_path_nodes, s_path_eids, s_path_len,
+            stats);
+        */
+        int n_spawned = path_edge_sweep_warp_fork_best_edge(
             g_row_ptr, g_col_idx, g_edge_id,
             g_src, g_dst,
             &cur_mask, cur_log_prob,
