@@ -13,11 +13,12 @@
 #include <algorithm>
 #include <numeric>
 #include <cmath>
+#include <climits>
 
 /* ================================================================== */
-/*  Double-buffered queue structures                                  */
-/*  Read queues  – consumed by the kernel (immutable during launch).  */
-/*  Write queues – append-only by the kernel (atomic counter).        */
+/*  Single-queue (read / write) structures                            */
+/*  Read queue   – consumed by the kernel (immutable during launch).  */
+/*  Write queue  – append-only by the kernel (atomic counter).        */
 /* ================================================================== */
 
 /* ---- device-side read queue ---- */
@@ -34,12 +35,23 @@ struct WriteQueue {
     int*      count;    /* device: atomic append counter */
 };
 
-/* ---- statistics (device-side) ---- */
+/* ================================================================== */
+/*  Statistics (device-side)                                          */
+/*                                                                    */
+/*  R    – global atomic accumulator for the reliability value.       */
+/*         Each terminal (all-WORKING) path adds its probability      */
+/*         exp(log_prob) directly here.                               */
+/*                                                                    */
+/*  esp_truncated – global atomic accumulator for the truncation /    */
+/*         overflow bound (a.k.a. ESP).  Two contributions:           */
+/*           1) WorkItems whose log_prob falls below the truncation  */
+/*              epsilon (handled in factoring_kernel).                */
+/*           2) Children that could not be enqueued because the       */
+/*              write queue was full (handled in path_edge_sweep).   */
+/* ================================================================== */
 struct DeviceStats {
-    float*                terminal_log_probs; /* buffer for results */
-    int*                  terminal_count;     /* atomic */
-    int                   terminal_capacity;
-    double*               esp_truncated;      /* atomic (CAS) */
+    double*               R;                  /* atomic (CAS) – reliability */
+    double*               esp_truncated;      /* atomic (CAS) – ESP bound   */
     unsigned long long*   paths_enumerated;   /* atomic */
     unsigned long long*   nodes_processed;    /* atomic */
 };
@@ -91,7 +103,7 @@ void atomicAddDouble(double* addr, double val)
 /*    s_path_len   [1]             int                               */
 /* ================================================================== */
 
-#define MAX_PATH_LEN 30   /* = MAX_NODE_WORDS * 32 */
+#define MAX_PATH_LEN 1024   /* = MAX_NODE_WORDS * 32 */
 
 __device__
 int path_edge_sweep_warp(
@@ -109,18 +121,8 @@ int path_edge_sweep_warp(
     /* edge probabilities */
     const float* g_log_p,
     const float* g_log_q,
-    /* write queues */
-    
-    #if !MULT_QUEUE
-    WriteQueue*  wq0,
-    #else 
-    WriteQueue*  wq0,
-    WriteQueue*  wq1,
-    WriteQueue*  wq2,
-    #endif
-    
-    float        thresh_high,
-    float        thresh_low,
+    /* single write queue */
+    WriteQueue*  wq,
     /* shared scratch */
     int*         s_path_nodes,   /* [MAX_PATH_LEN] */
     int*         s_path_eids,    /* [MAX_PATH_LEN] */
@@ -137,7 +139,6 @@ int path_edge_sweep_warp(
     *    s_path_nodes[path_len-1]  = g_dst                           *
     * ============================================================== */
     if (lane == 0) {
-        //We can parallize this block, i think? 
         int len = 0;
         
         /* collect dst → src */
@@ -183,8 +184,6 @@ int path_edge_sweep_warp(
             }
         }
         s_path_eids[hop] = eid;
-        assert(eid >= 0 && "CSR scan failed to find path edge — parent[] inconsistent with CSR");
-        
     }
     __syncwarp();
     
@@ -197,7 +196,8 @@ int path_edge_sweep_warp(
     *    • For all hops j < i that are UNKNOWN: set → WORKING,       *
     *      accumulate log_p[eid_j] into child.log_prob.              *
     *    • Set hop i → FAILED, accumulate log_q[eid_i].              *
-    *    • Enqueue the resulting WorkItem into the correct queue.    *
+    *    • Enqueue the resulting WorkItem into the single queue.    *
+    *      If the queue is full, fold the child's mass into ESP.    *
     *                                                                *
     *  All reads are from cur_mask (const, no race).                 *
     *  Each lane writes only to its own private child (registers /   *
@@ -209,8 +209,7 @@ int path_edge_sweep_warp(
         int eid_i = s_path_eids[hop];
         
         /* skip WORKING edges (already contracted) and gap sentinels  */
-        
-        if (mask_get(cur_mask, eid_i) != EDGE_UNKNOWN)
+        if (eid_i < 0 || mask_get(cur_mask, eid_i) != EDGE_UNKNOWN)
             continue;
         
         n_unknown++;   /* local count; we just need > 0 check         */
@@ -223,7 +222,7 @@ int path_edge_sweep_warp(
         /* commit all UNKNOWN hops before hop i → WORKING             */
         for (int h = 0; h < hop; h++) {
             int eid_h = s_path_eids[h];
-            if (mask_get(cur_mask, eid_h) == EDGE_UNKNOWN) {
+            if (eid_h >= 0 && mask_get(cur_mask, eid_h) == EDGE_UNKNOWN) {
                 mask_set(&child.mask, eid_h, EDGE_WORKING);
                 child.log_prob += __ldg(&g_log_p[eid_h]);
             }
@@ -233,68 +232,40 @@ int path_edge_sweep_warp(
         mask_set(&child.mask, eid_i, EDGE_FAILED);
         child.log_prob += __ldg(&g_log_q[eid_i]);
         
-        /* ---- select queue by log-probability ---- */
-        
-        #if !MULT_QUEUE   
-        WriteQueue* wq = wq0; 
-        #else
-        WriteQueue* wq;
-        if      (child.log_prob > thresh_high) wq = wq0;
-        else if (child.log_prob > thresh_low)  wq = wq1;
-        else                                   wq = wq2;
-        #endif
-        
+        /* ---- enqueue into the single write queue ----              *
+         *  If the queue is full (pos >= capacity) the child cannot  *
+         *  be explored – fold its probability mass into the ESP     *
+         *  bound so the final R + ESP stays a valid upper bound.    */
         int pos = atomicAdd(wq->count, 1);
-        if (pos < wq->capacity)
+        if (pos < wq->capacity) {
             wq->buffer[pos] = child;
-        //else add as per of eps
-        /*
+        } else {
+            atomicAddDouble(stats.esp_truncated,
+                            exp((double)child.log_prob));
+        }
+        
         if(hop == n_hops-1){
             //mask_set(&child.mask, eid_i, EDGE_WORKING);
             child.log_prob += __ldg(&g_log_p[eid_i]);
             child.log_prob -= __ldg(&g_log_q[eid_i]);
             
-            int slot = atomicAdd(stats.terminal_count, 1);
-            if (slot < stats.terminal_capacity)
-                stats.terminal_log_probs[slot] = child.log_prob;
+            /* ---- terminal (all-WORKING) path ----                  *
+             *  Add this path's probability directly to R.            */
+            atomicAddDouble(stats.R, exp((double)child.log_prob));
             atomicAdd(stats.paths_enumerated, 1ULL);
+            
+            
+            
         }
-        */
         
         
         
     }
+    
+    
+    
     
     __syncwarp();
-
-    /* ---- emit success leaf in parallel ---- *
-    *  All UNKNOWN hops on the path are set to WORKING (conceptually).
-    *  We only need their log_p sum since cur_mask is read-only here.
-    */
-    float leaf_partial = 0.0f;
-    
-    for (int h = lane; h < n_hops; h += 32) {
-        int eid_h = s_path_eids[h];
-        assert(eid_h >= 0); 
-        if (mask_get(cur_mask, eid_h) == EDGE_UNKNOWN) {
-            leaf_partial += __ldg(&g_log_p[eid_h]);
-        }
-    }
-    
-    /* warp reduction: sum partials across all 32 lanes */
-    for (int off = 16; off > 0; off >>= 1)
-        leaf_partial += __shfl_down_sync(0xFFFFFFFF, leaf_partial, off);
-    
-    /* lane 0 holds the full sum — emit the terminal */
-    if (lane == 0) {
-        float leaf_lp = cur_log_prob + leaf_partial;
-        int slot = atomicAdd(stats.terminal_count, 1);
-        if (slot < stats.terminal_capacity)
-            stats.terminal_log_probs[slot] = leaf_lp;
-        atomicAdd(stats.paths_enumerated, 1ULL);
-    }
-
-
     
     /* Warp-reduce n_unknown so all lanes agree on the return value.  */
     for (int off = 16; off > 0; off >>= 1)
@@ -320,7 +291,7 @@ int path_edge_sweep_warp(
 /*  FACTORING  KERNEL                                                 */
 /*                                                                    */
 /*  Each block = 1 warp (32 threads).                                 */
-/*  1. Dequeue one WorkItem from the highest-priority read queue.     */
+/*  1. Dequeue one WorkItem from the single read queue.               */
 /*  2. Truncation check.                                              */
 /*  3. Optimistic BFS – prune dead ends; fills parent[] array.        */
 /*  4. Confirmed  BFS – detect terminal successes.                    */
@@ -338,15 +309,10 @@ int path_edge_sweep_warp(
 /*    int       s_path_len     [1]                                    */
 /* ================================================================== */
 __global__ void factoring_kernel(
-    /* read queues (3) */
-    #if !MULT_QUEUE
-    ReadQueue   rq0, 
-    WriteQueue  wq0, 
-    #else
-    ReadQueue   rq0, ReadQueue  rq1, ReadQueue  rq2,
-    WriteQueue  wq0, WriteQueue wq1, WriteQueue wq2,
-    #endif
-    
+    /* single read queue */
+    ReadQueue   rq,
+    /* single write queue */
+    WriteQueue  wq,
     /* graph */
     const int*   g_row_ptr,
     const int*   g_col_idx,
@@ -356,8 +322,6 @@ __global__ void factoring_kernel(
     int          g_N, int g_E, int g_src, int g_dst,
     int          g_num_mask_words,
     /* thresholds */
-    float thresh_high,
-    float thresh_low,
     float truncation_log_eps,
     /* stats */
     DeviceStats  stats)
@@ -389,36 +353,19 @@ __global__ void factoring_kernel(
         int got = 0;
 
         if (lane == 0) {
-            /* try Q_HIGH first */
-            
-            #if !MULT_QUEUE
-            int idx = atomicAdd(rq0.next_idx, 1);
-            if (idx < rq0.size) { item = rq0.buffer[idx]; got = 1; }
-            
-            #else 
-            int idx = atomicAdd(rq0.next_idx, 1);
-            if (idx < rq0.size) { item = rq0.buffer[idx]; got = 1; }
-            
-            if (!got) {
-                idx = atomicAdd(rq1.next_idx, 1);
-                if (idx < rq1.size) { item = rq1.buffer[idx]; got = 1; }
-            }
-            if (!got) {
-                idx = atomicAdd(rq2.next_idx, 1);
-                if (idx < rq2.size) { item = rq2.buffer[idx]; got = 1; }
-            }
+            int idx = atomicAdd(rq.next_idx, 1);
+            if (idx < rq.size) { item = rq.buffer[idx]; got = 1; }
             if (got) {
-                //copy to shared mem for warp-wide access 
+                /* copy to shared mem for warp-wide access */
                 for (int w = 0; w < g_num_mask_words; w++)
                     s_mask_bits[w] = item.mask.bits[w];
                 for (int w = g_num_mask_words; w < MAX_MASK_WORDS; w++)
                     s_mask_bits[w] = 0;
                 *s_log_prob_ptr = item.log_prob;
             }
-            #endif 
         }
         got = __shfl_sync(0xFFFFFFFF, got, 0);
-        if (!got) return;   /* nothing left in any read queue */
+        if (!got) return;   /* nothing left in the read queue */
 
         __syncwarp();
 
@@ -464,25 +411,15 @@ __global__ void factoring_kernel(
          *   - lane 0   reconstructs the path into s_path_nodes[]     *
          *   - all lanes resolve edge ids (CSR lookup, phase 2)       *
          *   - all lanes build + enqueue one child per UNKNOWN edge   *
-         *     on the path (phase 3)                                  *
-         *                                                             *
-         * The return value is the number of UNKNOWN edges found.     *
-         * If 0 (all WORKING), the confirmed BFS above would already  *
-         * have caught it; this branch is unreachable in practice but *
-         * we guard with a fallback select_pivot for safety.          */
+         *     on the path (phase 3) – terminal cases go to R,        *
+         *     queue-full cases go to ESP.                            */
         int n_spawned = path_edge_sweep_warp(
             g_row_ptr, g_col_idx, g_edge_id,
             g_src, g_dst,
             &cur_mask, cur_log_prob,
             (const volatile int*)s_parent,
             g_log_p, g_log_q,
-            #if !MULT_QUEUE
-            &wq0, 
-            #else
-            &wq0, &wq1, &wq2,
-            #endif 
-
-            thresh_high, thresh_low,
+            &wq,
             s_path_nodes, s_path_eids, s_path_len,
             stats);
 
@@ -511,8 +448,8 @@ struct HostQueuePair {
 static void queue_pair_init(HostQueuePair* qp, int capacity)
 {
     qp->capacity = capacity;
-    CUDA_CHECK(cudaMalloc(&qp->buf_A, capacity * sizeof(WorkItem)));
-    CUDA_CHECK(cudaMalloc(&qp->buf_B, capacity * sizeof(WorkItem)));
+    CUDA_CHECK(cudaMalloc(&qp->buf_A, (size_t)capacity * sizeof(WorkItem)));
+    CUDA_CHECK(cudaMalloc(&qp->buf_B, (size_t)capacity * sizeof(WorkItem)));
     CUDA_CHECK(cudaMalloc(&qp->d_counter, sizeof(int)));
 
     qp->read_buf  = qp->buf_A;
@@ -611,24 +548,6 @@ static EdgeMask build_initial_mask(const GraphHost& g)
 }
 
 /* ================================================================== */
-/*  Host-side log-sum-exp  (double precision)                         */
-/* ================================================================== */
-static double log_sum_exp(const float* vals, int n)
-{
-    if (n == 0) return -INFINITY;
-
-    double max_val = (double)vals[0];
-    for (int i = 1; i < n; i++)
-        if ((double)vals[i] > max_val) max_val = (double)vals[i];
-
-    double sum = 0.0;
-    for (int i = 0; i < n; i++)
-        sum += exp((double)vals[i] - max_val);
-
-    return max_val + log(sum);
-}
-
-/* ================================================================== */
 /*  Parse command line                                                */
 /* ================================================================== */
 static Config parse_args(int argc, char** argv)
@@ -689,38 +608,66 @@ int main(int argc, char** argv)
     init_item.mask     = init_mask;
     init_item.log_prob = 0.0f;   /* probability = 1 initially */
 
-    /* ---- allocate queues ---- */
+    /* ================================================================ */
+    /*  AUTO-SIZE THE QUEUE: as large as fits in remaining GPU memory.  */
+    /*  We need to fit per "unit" of capacity:                          */
+    /*    - 2 × sizeof(WorkItem)  (read + write ping-pong buffers)      */
+    /*  Reserve 256 MB for stats counters, smem, driver overhead, etc.  */
+    /* ================================================================ */
+    {
+        size_t free_bytes = 0, total_bytes = 0;
+        CUDA_CHECK(cudaMemGetInfo(&free_bytes, &total_bytes));
+
+        size_t reserve_bytes = (size_t)256 * 1024 * 1024;   /* 256 MB */
+        size_t available = (free_bytes > reserve_bytes)
+                              ? (free_bytes - reserve_bytes)
+                              : (free_bytes / 2);
+
+        size_t per_unit = 2 * sizeof(WorkItem);
+        size_t max_cap  = available / per_unit;
+
+        /* clamp to INT_MAX (queue counters are int) */
+        if (max_cap > (size_t)INT_MAX) max_cap = (size_t)INT_MAX;
+        if (max_cap < 1) max_cap = 1;
+
+        cfg.queue_capacity = (int)max_cap;
+
+        printf("GPU memory: free=%.2f GB, total=%.2f GB\n",
+               free_bytes  / (1024.0 * 1024.0 * 1024.0),
+               total_bytes / (1024.0 * 1024.0 * 1024.0));
+        printf("Auto-sized queue capacity: %d items "
+               "(%.2f MB per buffer × 2)\n",
+               cfg.queue_capacity,
+               (cfg.queue_capacity * (double)sizeof(WorkItem)) / (1024.0 * 1024.0));
+    }
+
+    /* ---- allocate the single queue ---- */
     HostQueuePair queues[NUM_QUEUES];
     for (int q = 0; q < NUM_QUEUES; q++)
         queue_pair_init(&queues[q], cfg.queue_capacity);
 
-    /* seed Q_HIGH with initial work item */
+    /* seed Q_HIGH (the only queue) with the initial work item */
     CUDA_CHECK(cudaMemcpy(queues[Q_HIGH].read_buf, &init_item,
                            sizeof(WorkItem), cudaMemcpyHostToDevice));
     queues[Q_HIGH].read_size = 1;
 
-    /* ---- allocate per-queue dequeue counters ---- */
+    /* ---- allocate per-queue dequeue counter ---- */
     int* d_next_idx[NUM_QUEUES];
     for (int q = 0; q < NUM_QUEUES; q++)
         CUDA_CHECK(cudaMalloc(&d_next_idx[q], sizeof(int)));
 
     /* ---- allocate stats ---- */
-    int terminal_capacity = cfg.queue_capacity;
     DeviceStats dstats;
-    CUDA_CHECK(cudaMalloc(&dstats.terminal_log_probs,
-                           terminal_capacity * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&dstats.terminal_count, sizeof(int)));
-    dstats.terminal_capacity = terminal_capacity;
-    CUDA_CHECK(cudaMalloc(&dstats.esp_truncated, sizeof(double)));
-    CUDA_CHECK(cudaMalloc(&dstats.paths_enumerated,
-                           sizeof(unsigned long long)));
-    CUDA_CHECK(cudaMalloc(&dstats.nodes_processed,
-                           sizeof(unsigned long long)));
+    CUDA_CHECK(cudaMalloc(&dstats.R,                sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&dstats.esp_truncated,    sizeof(double)));
+    CUDA_CHECK(cudaMalloc(&dstats.paths_enumerated, sizeof(unsigned long long)));
+    CUDA_CHECK(cudaMalloc(&dstats.nodes_processed,  sizeof(unsigned long long)));
 
     /* zero stats */
-    CUDA_CHECK(cudaMemset(dstats.terminal_count, 0, sizeof(int)));
     {
         double z = 0.0;
+        CUDA_CHECK(cudaMemcpy(dstats.R, &z, sizeof(double),
+                               cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemcpy(dstats.esp_truncated, &z, sizeof(double),
                                cudaMemcpyHostToDevice));
     }
@@ -816,22 +763,18 @@ int main(int argc, char** argv)
 
         /* launch kernel */
         factoring_kernel<<<n_blocks, threads_per_block, smem_bytes>>>(
-            #if !MULT_QUEUE
-            rq[0], wq[0],
-            #else 
-            rq[0], rq[1], rq[2],
-            wq[0], wq[1], wq[2],
-            #endif
+            rq[0],
+            wq[0],
             gd.row_ptr, gd.col_idx, gd.edge_id,
             gd.log_p,   gd.log_q,
             gd.N, gd.E, gd.src, gd.dst,
             gd.num_mask_words,
-            cfg.thresh_high, cfg.thresh_low, cfg.truncation_log_eps,
+            cfg.truncation_log_eps,
             dstats);
 
         CUDA_CHECK(cudaDeviceSynchronize());
 
-        /* swap read/write for each queue */
+        /* swap read/write for the queue */
         for (int q = 0; q < NUM_QUEUES; q++)
             queue_pair_swap(&queues[q]);
 
@@ -845,21 +788,9 @@ int main(int argc, char** argv)
     CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, ev_start, ev_stop));
 
     /* ---- read back stats ---- */
-    int h_terminal_count = 0;
-    CUDA_CHECK(cudaMemcpy(&h_terminal_count, dstats.terminal_count,
-                           sizeof(int), cudaMemcpyDeviceToHost));
-    if (h_terminal_count > terminal_capacity)
-        h_terminal_count = terminal_capacity;
-
-    std::vector<float> h_terminal_lps(h_terminal_count);
-    if (h_terminal_count > 0) {
-        CUDA_CHECK(cudaMemcpy(h_terminal_lps.data(),
-                               dstats.terminal_log_probs,
-                               h_terminal_count * sizeof(float),
-                               cudaMemcpyDeviceToHost));
-    }
-
-    double h_esp = 0.0;
+    double R = 0.0, h_esp = 0.0;
+    CUDA_CHECK(cudaMemcpy(&R, dstats.R, sizeof(double),
+                           cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(&h_esp, dstats.esp_truncated,
                            sizeof(double), cudaMemcpyDeviceToHost));
 
@@ -872,8 +803,6 @@ int main(int argc, char** argv)
                            cudaMemcpyDeviceToHost));
 
     /* ---- compute final reliability ---- */
-    double log_R      = log_sum_exp(h_terminal_lps.data(), h_terminal_count);
-    double R          = (h_terminal_count > 0) ? exp(log_R) : 0.0;
     double R_with_esp = R + h_esp;
 
     size_t rss_bytes = max_rss_items * sizeof(WorkItem);
@@ -905,8 +834,7 @@ int main(int argc, char** argv)
         queue_pair_free(&queues[q]);
         cudaFree(d_next_idx[q]);
     }
-    cudaFree(dstats.terminal_log_probs);
-    cudaFree(dstats.terminal_count);
+    cudaFree(dstats.R);
     cudaFree(dstats.esp_truncated);
     cudaFree(dstats.paths_enumerated);
     cudaFree(dstats.nodes_processed);
@@ -916,3 +844,4 @@ int main(int argc, char** argv)
 
     return 0;
 }
+

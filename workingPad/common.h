@@ -23,16 +23,11 @@
 #define EDGE_WORKING  1   /* 0b01 – contracted / operational        */
 #define EDGE_UNKNOWN  3   /* 0b11 – undetermined (pivot candidate)  */
 
-/* -------- Queue priorities -------- */
+/* -------- Queue priorities (single-queue mode: only Q_HIGH used) -- */
 #define Q_HIGH 0
 #define Q_MED  1
 #define Q_LOW  2
 #define NUM_QUEUES 1
-
-#ifndef MULT_QUEUE
-#define MULT_QUEUE 0
-#endif
-
 
 /* -------- Default parameters -------- */
 #define DEFAULT_QUEUE_CAPACITY  (1 << 20)   /* 1 M items per queue   */
