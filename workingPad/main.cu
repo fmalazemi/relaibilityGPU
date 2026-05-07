@@ -103,7 +103,7 @@ void atomicAddDouble(double* addr, double val)
 /*    s_path_len   [1]             int                               */
 /* ================================================================== */
 
-#define MAX_PATH_LEN 1024   /* = MAX_NODE_WORDS * 32 */
+#define MAX_PATH_LEN MAX_NODE_WORDS   /* = MAX_NODE_WORDS * 32 */
 
 __device__
 int path_edge_sweep_warp(
@@ -630,7 +630,9 @@ int main(int argc, char** argv)
         if (max_cap > (size_t)INT_MAX) max_cap = (size_t)INT_MAX;
         if (max_cap < 1) max_cap = 1;
 
-        cfg.queue_capacity = (int)max_cap;
+        //Uncomment below if you want to dynamically allocate all space
+        //Warning: program may run very slow. 
+        //cfg.queue_capacity = (int)max_cap;
 
         printf("GPU memory: free=%.2f GB, total=%.2f GB\n",
                free_bytes  / (1024.0 * 1024.0 * 1024.0),
@@ -681,7 +683,7 @@ int main(int argc, char** argv)
     cudaDeviceProp prop;
     CUDA_CHECK(cudaGetDeviceProperties(&prop, device_id));
     int num_sms           = prop.multiProcessorCount;
-    int n_blocks          = num_sms * 2;   /* 2 warps per SM */
+    //int n_blocks          = num_sms * 2;   /* 2 warps per SM */
     int threads_per_block = 32;            /* exactly 1 warp */
 
     int node_words = (gh.N + 31) / 32;
@@ -709,14 +711,38 @@ int main(int argc, char** argv)
         + (int)sizeof(int);                         /* s_path_len      */
 
     /* Guard: reduce blocks if smem exceeds device limit. */
-    if (smem_bytes > (int)prop.sharedMemPerBlock) {
+    /*if (smem_bytes > (int)prop.sharedMemPerBlock) {
         fprintf(stderr,
             "WARNING: smem_bytes=%d exceeds sharedMemPerBlock=%d.\n"
             "  Consider reducing MAX_PATH_LEN or graph size.\n",
             smem_bytes, (int)prop.sharedMemPerBlock);
-        /* clamp to 1 block – still correct, just slower */
+        // clamp to 1 block – still correct, just slower 
         n_blocks = 1;
+    }*/
+    
+    /* ---- query smem/register-limited occupancy ---- */
+    int blocks_per_sm = 0;
+    CUDA_CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &blocks_per_sm,
+        factoring_kernel,
+        threads_per_block,
+        smem_bytes));
+    
+    if (blocks_per_sm < 1) {
+        fprintf(stderr,
+            "ERROR: kernel cannot fit on any SM with smem_bytes=%d "
+            "(per-block max=%d, per-SM max=%d).\n"
+            "  Reduce MAX_PATH_LEN or graph size.\n",
+            smem_bytes,
+            (int)prop.sharedMemPerBlock,
+            (int)prop.sharedMemPerMultiprocessor);
+        exit(EXIT_FAILURE);
     }
+    
+    int n_blocks = blocks_per_sm * num_sms;
+    
+    printf("Occupancy: %d blocks/SM × %d SMs = %d blocks total\n",
+        blocks_per_sm, num_sms, n_blocks);
 
     printf("Launch config: %d blocks × %d threads, smem=%d B, SMs=%d\n",
            n_blocks, threads_per_block, smem_bytes, num_sms);
