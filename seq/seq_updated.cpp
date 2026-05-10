@@ -598,7 +598,7 @@ void computeReliability(ReliabilityContext* ctx) {
             ctx->Mask[sn] = MASK_UP;
             logMult += ctx->LogProb[sn];
         }
-        continue  ; 
+        //continue  ; 
         
         //---------------------------------------------------------------------
         // All path edges now marked UP - accumulate probability

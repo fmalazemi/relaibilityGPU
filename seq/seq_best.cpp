@@ -29,6 +29,9 @@
 
 using namespace std;
 
+//0 = false, 1 = true
+#define CHECK_BEFORE_ENQUEUE 1
+
 //=============================================================================
 // Global File Handle
 //=============================================================================
@@ -223,8 +226,6 @@ struct ReliabilityContext {
     // Working arrays
     unsigned char* Mask;        // Current working mask
     unsigned char* NewMask;     // Temporary mask for branching
-    short* PathStack;           // Stack of unmarked edges on path
-    int PathStackTop;
     
     // BFS arrays
     bool* Visited;
@@ -234,8 +235,8 @@ struct ReliabilityContext {
     // Results
     double rel;                 // Accumulated reliability
     double Eps;                 // Truncated probability mass
-    int NP;                     // Number of paths processed
-    int iterations;             // Total iterations
+    unsigned long long  NP;                     // Number of paths processed
+    unsigned long long  iterations;             // Total iterations
     
     // Timing
     clock_t startTime;
@@ -261,7 +262,7 @@ inline EdgeId Seq_No(int i, int j, N_Type Nodes[], E_Type Edges[]) {
 // Returns true if path exists
 // In this function, we don't care about the path, we only test if path exists. 
 //=============================================================================
-inline bool checkConnectivity(ReliabilityContext* ctx, const unsigned char* mask) {
+inline bool checkConnectivityWorkingOnly(ReliabilityContext* ctx, const unsigned char* mask) {
     int N = ctx->N;
     int src = ctx->src;
     int t = ctx->t;
@@ -290,7 +291,7 @@ inline bool checkConnectivity(ReliabilityContext* ctx, const unsigned char* mask
             int sn = Edges[offset + dx].SeqNo;
             
             // Edge is traversable if UP (1) or unmarked (0xFF)
-            if (!Visited[j] && (mask[sn] == MASK_UP || mask[sn] == MASK_NOMARK)) {
+            if (!Visited[j] && mask[sn] == MASK_UP) {
                 Visited[j] = true;
                 Queue[rear++] = j;
                 
@@ -354,29 +355,37 @@ inline bool findPath(ReliabilityContext* ctx) {
 //=============================================================================
 // Trace path from t back to src, collect unmarked edges
 //=============================================================================
-inline void tracePathAndCollectUnmarkedEdges(ReliabilityContext* ctx) {
+inline int getBestEdge(ReliabilityContext* ctx) {
     int src = ctx->src;
     int t = ctx->t;
     short* Parent = ctx->Parent;
     unsigned char* Mask = ctx->Mask;
-    short* PathStack = ctx->PathStack;
     N_Type* Nodes = ctx->Nodes;
     E_Type* Edges = ctx->Edges;
-    
-    ctx->PathStackTop = -1;
-    
+
     int j = t;
     int i = Parent[t];
     
+    int maxSN = -1; 
+    double maxProb = -10000000; // does no exist and will create overflow
+    bool found = false ; 
+
     while (j != src) {
         EdgeId sn = Seq_No(i, j, Nodes, Edges);
         if (Mask[sn] == MASK_NOMARK) {
-            ctx->PathStackTop++;
-            PathStack[ctx->PathStackTop] = sn;
+		if(maxProb < ctx->LogProb[sn]){
+			maxSN = sn; 
+			maxProb = ctx->LogProb[sn]; 
+			found = true; 
+		}
         }
         j = i;
         i = Parent[j];
     }
+    return maxSN; 
+   
+    
+
 }
 
 //=============================================================================
@@ -445,12 +454,11 @@ bool initContext(ReliabilityContext* ctx, Graph_Type* G,
     // Allocate working arrays
     ctx->Mask = new (nothrow) unsigned char[ctx->MaskSize];
     ctx->NewMask = new (nothrow) unsigned char[ctx->MaskSize];
-    ctx->PathStack = new (nothrow) short[ctx->MaskSize];
     ctx->Visited = new (nothrow) bool[ctx->N];
     ctx->Parent = new (nothrow) short[ctx->N];
     ctx->Queue = new (nothrow) short[ctx->N];
     
-    if (!ctx->Mask || !ctx->NewMask || !ctx->PathStack ||
+    if (!ctx->Mask || !ctx->NewMask ||
         !ctx->Visited || !ctx->Parent || !ctx->Queue) {
         cerr << "Failed to allocate working arrays" << endl;
         return false;
@@ -468,7 +476,6 @@ void destroyContext(ReliabilityContext* ctx) {
     delete[] ctx->LogProbFail;
     delete[] ctx->Mask;
     delete[] ctx->NewMask;
-    delete[] ctx->PathStack;
     delete[] ctx->Visited;
     delete[] ctx->Parent;
     delete[] ctx->Queue;
@@ -505,16 +512,15 @@ void computeReliability(ReliabilityContext* ctx) {
         ctx->pq.pop(ctx->Mask, logMult);
         
         ctx->iterations++;
-        
         //---------------------------------------------------------------------
         // Progress reporting
         //---------------------------------------------------------------------
-        if (false && (ctx->iterations % REPORT_INTERVAL == 0)) {
+        if (false && ctx->iterations % REPORT_INTERVAL == 0) {
             clock_t now = clock();
             double elapsed = (double)(now - ctx->startTime) / CLOCKS_PER_SEC;
             double rate = ctx->iterations / elapsed;
             
-            printf("Iter %d | Q=%d | rel=%.10e | Eps=%.10e | %.0f iter/s\n",
+            printf("Iter %llu | Q=%d | rel=%.10e | Eps=%.10e | %.0f iter/s\n",
                    ctx->iterations, ctx->pq.size, ctx->rel, ctx->Eps, rate);
         }
         
@@ -531,24 +537,47 @@ void computeReliability(ReliabilityContext* ctx) {
         //---------------------------------------------------------------------
         
         
-        tracePathAndCollectUnmarkedEdges(ctx);
-    
+        int maxSN = getBestEdge(ctx);
+    	if(maxSN == -1){
+		//a full working path exist. no need to fork
+                double prob = exp(logMult);
+                if(isfinite(prob)) {
+                    ctx->rel += prob;
+                }
+    		ctx->NP++;     
+		continue; // all edges are working
+	}
         //---------------------------------------------------------------------
         // Factor on each unmarked edge
         //---------------------------------------------------------------------
-        while (ctx->PathStackTop >= 0) {
-            int sn = ctx->PathStack[ctx->PathStackTop];
-            ctx->PathStackTop--;
             
             //-----------------------------------------------------------------
             // Branch 1: Edge FAILS
             //-----------------------------------------------------------------
             memcpy(ctx->NewMask, ctx->Mask, ctx->MaskSize);
-            ctx->NewMask[sn] = MASK_DOWN;
-            double logNewMult = logMult + ctx->LogProbFail[sn];
-            
-            // Only add to queue if graph still operational
-            if(checkConnectivity(ctx, ctx->NewMask)) {
+            ctx->NewMask[maxSN] = MASK_DOWN;
+            double logNewMult = logMult + ctx->LogProbFail[maxSN];
+           
+	     if (!ctx->pq.full()) {
+                    ctx->pq.push(ctx->NewMask, logNewMult);
+             } else {
+                    // Queue full - add to truncation error
+                    ctx->NP++;
+                    double prob = exp(logNewMult);
+                    if (isfinite(prob)) {
+                        ctx->Eps += prob;
+                    }
+            }
+	    ctx->NewMask[maxSN] = MASK_UP;
+	    logNewMult = logMult + ctx->LogProb[maxSN];
+            // Only add to queue if graph still operational with UP edges
+            if(CHECK_BEFORE_ENQUEUE && checkConnectivityWorkingOnly(ctx, ctx->NewMask)) {
+		double prob = exp(logMult);
+                if(isfinite(prob)) {
+                    ctx->rel += prob;
+                }
+    		ctx->NP++;     
+	    }else{
                 if (!ctx->pq.full()) {
                     ctx->pq.push(ctx->NewMask, logNewMult);
                 } else {
@@ -564,18 +593,11 @@ void computeReliability(ReliabilityContext* ctx) {
             //-----------------------------------------------------------------
             // Branch 2: Edge WORKS (continue with current mask)
             //-----------------------------------------------------------------
-            ctx->Mask[sn] = MASK_UP;
-            logMult += ctx->LogProb[sn];
-        }
+        
         
         //---------------------------------------------------------------------
         // All path edges now marked UP - accumulate probability
         //---------------------------------------------------------------------
-        ctx->NP++;
-        double prob = exp(logMult);
-        if (isfinite(prob)) {
-            ctx->rel += prob;
-        }
     }
     
     //-------------------------------------------------------------------------

@@ -1,0 +1,180 @@
+Enter Input File Name: Enter source and terminal nodes: 
+=== Network Reliability Calculator ===
+Input file: COMP8.txt
+Source: 0, Terminal: 7
+N = 8, M = 56, Type: U
+Graph loaded successfully
+Allocated mask pool: 347 MB for 13000000 masks of 28 bytes each
+
+=== Starting Reliability Computation ===
+Nodes: 8, Edges: 56, MaskSize: 28
+Source: 0, Terminal: 7
+
+=== Computation Complete ===
+Total iterations: 107319
+Paths processed:  26830
+Time:             0.037062 seconds
+Rate:             2.89566e+06 iter/sec
+
+=== RESULTS ===
+Reliability:       0.98257344961166381836
+Truncation (Eps):  0.00000000000000000000
+Total (rel + Eps): 0.98257344961166381836
+Paths enumerated:  26830
+Max RSS:           207004 KB
+Total time:        139.484 ms
+
+=== Done ===
+
+__________________________________________________________________
+__________________________________________________________________
+Enter Input File Name: Enter source and terminal nodes: 
+=== Network Reliability Calculator ===
+Input file: COMP8-03.txt
+Source: 0, Terminal: 7
+N = 8, M = 56, Type: U
+Graph loaded successfully
+Allocated mask pool: 347 MB for 13000000 masks of 28 bytes each
+
+=== Starting Reliability Computation ===
+Nodes: 8, Edges: 56, MaskSize: 28
+Source: 0, Terminal: 7
+
+=== Computation Complete ===
+Total iterations: 107319
+Paths processed:  26830
+Time:             0.037104 seconds
+Rate:             2.89238e+06 iter/sec
+
+=== RESULTS ===
+Reliability:       0.78581417953993681902
+Truncation (Eps):  0.00000000000000000000
+Total (rel + Eps): 0.78581417953993681902
+Paths enumerated:  26830
+Max RSS:           207292 KB
+Total time:        143.933 ms
+
+=== Done ===
+
+__________________________________________________________________
+__________________________________________________________________
+Enter Input File Name: Enter source and terminal nodes: 
+=== Network Reliability Calculator ===
+Input file: COMP9.txt
+Source: 0, Terminal: 8
+N = 9, M = 72, Type: U
+Graph loaded successfully
+Allocated mask pool: 446 MB for 13000000 masks of 36 bytes each
+
+=== Starting Reliability Computation ===
+Nodes: 9, Edges: 72, MaskSize: 36
+Source: 0, Terminal: 8
+
+=== Computation Complete ===
+Total iterations: 1648059
+Paths processed:  412015
+Time:             0.581802 seconds
+Rate:             2.83268e+06 iter/sec
+
+=== RESULTS ===
+Reliability:       0.99169051996432244778
+Truncation (Eps):  0.00000000000000000000
+Total (rel + Eps): 0.99169051996432244778
+Paths enumerated:  412015
+Max RSS:           213672 KB
+Total time:        681.522 ms
+
+=== Done ===
+
+__________________________________________________________________
+__________________________________________________________________
+Enter Input File Name: Enter source and terminal nodes: 
+=== Network Reliability Calculator ===
+Input file: COMP10-05.txt
+Source: 0, Terminal: 9
+N = 10, M = 90, Type: U
+Graph loaded successfully
+Allocated mask pool: 557 MB for 13000000 masks of 45 bytes each
+
+=== Starting Reliability Computation ===
+Nodes: 10, Edges: 90, MaskSize: 45
+Source: 0, Terminal: 9
+
+=== Computation Complete ===
+Total iterations: 29732127
+Paths processed:  7433032
+Time:             10.1181 seconds
+Rate:             2.93851e+06 iter/sec
+
+=== RESULTS ===
+Reliability:       0.99596245255088433623
+Truncation (Eps):  0.00000000000000000000
+Total (rel + Eps): 0.99596245255088433623
+Paths enumerated:  7433032
+Max RSS:           347408 KB
+Total time:        10204.9 ms
+
+=== Done ===
+
+__________________________________________________________________
+__________________________________________________________________
+Enter Input File Name: Enter source and terminal nodes: 
+=== Network Reliability Calculator ===
+Input file: COMP15-05.txt
+Source: 0, Terminal: 14
+N = 15, M = 210, Type: U
+Graph loaded successfully
+Allocated mask pool: 1301 MB for 13000000 masks of 105 bytes each
+
+=== Starting Reliability Computation ===
+Nodes: 15, Edges: 210, MaskSize: 105
+Source: 0, Terminal: 14
+
+=== Computation Complete ===
+Total iterations: 860349360
+Paths processed:  621147842
+Time:             454.315 seconds
+Rate:             1.89373e+06 iter/sec
+
+=== RESULTS ===
+Reliability:       0.99945278398026538014
+Truncation (Eps):  0.00047160289764699325
+Total (rel + Eps): 0.99992438687791240781
+Paths enumerated:  621147842
+Max RSS:           1539132 KB
+Total time:        454399 ms
+
+=== Done ===
+
+__________________________________________________________________
+__________________________________________________________________
+Enter Input File Name: Enter source and terminal nodes: 
+=== Network Reliability Calculator ===
+Input file: COMP25-05.txt
+Source: 0, Terminal: 24
+N = 25, M = 600, Type: U
+Graph loaded successfully
+Allocated mask pool: 3719 MB for 13000000 masks of 300 bytes each
+
+=== Starting Reliability Computation ===
+Nodes: 25, Edges: 600, MaskSize: 300
+Source: 0, Terminal: 24
+
+=== Computation Complete ===
+Total iterations: -1046360154
+Paths processed:  -1456414158
+Time:             3540.18 seconds
+Rate:             -295567 iter/sec
+
+=== RESULTS ===
+Reliability:       0.99951169107589521445
+Truncation (Eps):  0.00048824931929658538
+Total (rel + Eps): 0.99999994039519179978
+Paths enumerated:  -1456414158
+Max RSS:           4014960 KB
+Total time:        3.54025e+06 ms
+
+=== Done ===
+
+__________________________________________________________________
+__________________________________________________________________
