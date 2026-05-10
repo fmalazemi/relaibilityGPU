@@ -1,0 +1,67 @@
+ Enter Input File Name:  Enter src & terminal: N= 8 M = 56 type: U
+READ OK
+OK 0x7d01a702d010 
+PASSED MEMORY 
+ MaskSize = 28 MAX_Q_SIZE = 130000000
+Max RSS (heap size): 8127912 kilobytes
+ rel = 0.98257344961166381836 
+ Eps = 0.00000000000000000000 rel+Eps 0.98257344961166381836
+ NP = 26830
+Time = 3421.43 ms 
+
+__________________________________________________________________
+__________________________________________________________________
+ Enter Input File Name:  Enter src & terminal: N= 8 M = 56 type: U
+READ OK
+OK 0x7791fc62d010 
+PASSED MEMORY 
+ MaskSize = 28 MAX_Q_SIZE = 130000000
+Max RSS (heap size): 8128240 kilobytes
+ rel = 0.78581420512738298090 
+ Eps = 0.00000000000000000000 rel+Eps 0.78581420512738298090
+ NP = 26830
+Time = 3626.2 ms 
+
+__________________________________________________________________
+__________________________________________________________________
+ Enter Input File Name:  Enter src & terminal: N= 9 M = 72 type: U
+READ OK
+OK 0x732dbd42d010 
+PASSED MEMORY 
+ MaskSize = 36 MAX_Q_SIZE = 130000000
+Max RSS (heap size): 8128568 kilobytes
+ rel = 0.99169051996432244778 
+ Eps = 0.00000000000000000000 rel+Eps 0.99169051996432244778
+ NP = 412015
+Time = 3794.1 ms 
+
+__________________________________________________________________
+__________________________________________________________________
+ Enter Input File Name:  Enter src & terminal: N= 10 M = 90 type: U
+READ OK
+OK 0x732fb3e2d010 
+PASSED MEMORY 
+ MaskSize = 45 MAX_Q_SIZE = 130000000
+Max RSS (heap size): 10158956 kilobytes
+ rel = 0.99596245255088433623 
+ Eps = 0.00000000000000000000 rel+Eps 0.99596245255088433623
+ NP = 7433032
+Time = 13617.3 ms 
+
+__________________________________________________________________
+__________________________________________________________________
+ Enter Input File Name:  Enter src & terminal: N= 15 M = 210 type: U
+READ OK
+OK 0x79cb6042d010 
+PASSED MEMORY 
+ MaskSize = 105 MAX_Q_SIZE = 130000000
+Max RSS (heap size): 18284684 kilobytes
+ rel = 0.99984949656639954263 
+ Eps = 0.00003887075279713721 rel+Eps 0.99988836731919672474
+ NP = 1480054656
+Time = 1.4007e+07 ms 
+
+__________________________________________________________________
+__________________________________________________________________
+ Enter Input File Name:  Enter src & terminal: N= 25 M = 600 type: U
+ Enter Input File Name:  Enter src & terminal: N= 8 M = 56 type: U

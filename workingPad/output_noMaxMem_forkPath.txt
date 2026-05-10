@@ -1,0 +1,138 @@
+Graph loaded: N=8  E=28  mask_words=2  src=0  dst=7
+GPU memory: free=19.28 GB, total=19.57 GB
+Auto-sized queue capacity: 1048576 items (132.00 MB per buffer × 2)
+Occupancy: 16 blocks/SM × 56 SMs = 896 blocks total
+Launch config: 896 blocks × 32 threads, smem=436 B, SMs=56
+
+============================================
+  Two-Terminal Network Reliability Results
+============================================
+Graph:            N = 8, E = 28
+Terminals:        src = 0, dst = 7
+--------------------------------------------
+Reliability:      R(G) = 0.982573365126
+R + ESP:                 0.982573365126
+ESP (truncated):         0.000000e+00
+Truncation bound:        0.000000e+00
+--------------------------------------------
+Paths enumerated: 26830
+Nodes processed:  53660
+Kernel iterations:23
+Max queue RSS:    1.027 MB  (8160 items)
+Total time:       10.086 ms
+============================================
+Graph loaded: N=8  E=28  mask_words=2  src=0  dst=7
+GPU memory: free=19.28 GB, total=19.57 GB
+Auto-sized queue capacity: 1048576 items (132.00 MB per buffer × 2)
+Occupancy: 16 blocks/SM × 56 SMs = 896 blocks total
+Launch config: 896 blocks × 32 threads, smem=436 B, SMs=56
+
+============================================
+  Two-Terminal Network Reliability Results
+============================================
+Graph:            N = 8, E = 28
+Terminals:        src = 0, dst = 7
+--------------------------------------------
+Reliability:      R(G) = 0.785813986824
+R + ESP:                 0.785813986824
+ESP (truncated):         0.000000e+00
+Truncation bound:        0.000000e+00
+--------------------------------------------
+Paths enumerated: 26830
+Nodes processed:  53660
+Kernel iterations:23
+Max queue RSS:    1.027 MB  (8160 items)
+Total time:       9.247 ms
+============================================
+Graph loaded: N=9  E=36  mask_words=3  src=0  dst=8
+GPU memory: free=19.28 GB, total=19.57 GB
+Auto-sized queue capacity: 1048576 items (132.00 MB per buffer × 2)
+Occupancy: 16 blocks/SM × 56 SMs = 896 blocks total
+Launch config: 896 blocks × 32 threads, smem=440 B, SMs=56
+
+============================================
+  Two-Terminal Network Reliability Results
+============================================
+Graph:            N = 9, E = 36
+Terminals:        src = 0, dst = 8
+--------------------------------------------
+Reliability:      R(G) = 0.991690408411
+R + ESP:                 0.991690408411
+ESP (truncated):         0.000000e+00
+Truncation bound:        0.000000e+00
+--------------------------------------------
+Paths enumerated: 412015
+Nodes processed:  824030
+Kernel iterations:30
+Max queue RSS:    13.112 MB  (104160 items)
+Total time:       123.533 ms
+============================================
+Graph loaded: N=10  E=45  mask_words=3  src=0  dst=9
+GPU memory: free=19.28 GB, total=19.57 GB
+Auto-sized queue capacity: 1048576 items (132.00 MB per buffer × 2)
+Occupancy: 16 blocks/SM × 56 SMs = 896 blocks total
+Launch config: 896 blocks × 32 threads, smem=444 B, SMs=56
+
+============================================
+  Two-Terminal Network Reliability Results
+============================================
+Graph:            N = 10, E = 45
+Terminals:        src = 0, dst = 9
+--------------------------------------------
+Reliability:      R(G) = 0.995959559675
+R + ESP:                 0.995969373554
+ESP (truncated):         9.813880e-06
+Truncation bound:        9.853693e-06
+--------------------------------------------
+Paths enumerated: 7043617
+Nodes processed:  12124286
+Kernel iterations:38
+Max queue RSS:    132.000 MB  (1048576 items)
+Total time:       1938.047 ms
+============================================
+Graph loaded: N=15  E=105  mask_words=7  src=0  dst=14
+GPU memory: free=19.28 GB, total=19.57 GB
+Auto-sized queue capacity: 1048576 items (132.00 MB per buffer × 2)
+Occupancy: 16 blocks/SM × 56 SMs = 896 blocks total
+Launch config: 896 blocks × 32 threads, smem=464 B, SMs=56
+
+============================================
+  Two-Terminal Network Reliability Results
+============================================
+Graph:            N = 15, E = 105
+Terminals:        src = 0, dst = 14
+--------------------------------------------
+Reliability:      R(G) = 0.999303686885
+R + ESP:                 0.999929383850
+ESP (truncated):         6.256970e-04
+Truncation bound:        6.261330e-04
+--------------------------------------------
+Paths enumerated: 41504431
+Nodes processed:  25492124
+Kernel iterations:48
+Max queue RSS:    132.000 MB  (1048576 items)
+Total time:       15036.883 ms
+============================================
+Graph loaded: N=25  E=300  mask_words=19  src=0  dst=24
+GPU memory: free=19.28 GB, total=19.57 GB
+Auto-sized queue capacity: 1048576 items (132.00 MB per buffer × 2)
+Occupancy: 16 blocks/SM × 56 SMs = 896 blocks total
+Launch config: 896 blocks × 32 threads, smem=504 B, SMs=56
+
+============================================
+  Two-Terminal Network Reliability Results
+============================================
+Graph:            N = 25, E = 300
+Terminals:        src = 0, dst = 24
+--------------------------------------------
+Reliability:      R(G) = 0.999357614166
+R + ESP:                 0.999999792526
+ESP (truncated):         6.421784e-04
+Truncation bound:        6.425912e-04
+--------------------------------------------
+Paths enumerated: 42376639
+Nodes processed:  25660514
+Kernel iterations:49
+Max queue RSS:    132.000 MB  (1048576 items)
+Total time:       9875.819 ms
+============================================

@@ -15,6 +15,12 @@
 #include <cmath>
 #include <climits>
 
+
+
+#define USE_MAX_MEMORY false
+#define FORK_BEST_EDGE false  
+
+
 /* ================================================================== */
 /*  Single-queue (read / write) structures                            */
 /*  Read queue   – consumed by the kernel (immutable during launch).  */
@@ -242,6 +248,7 @@ int path_edge_sweep_warp(
         } else {
             atomicAddDouble(stats.esp_truncated,
                             exp((double)child.log_prob));
+	    atomicAdd(stats.paths_enumerated, 1ULL);
         }
         
         if(hop == n_hops-1){
@@ -388,11 +395,10 @@ int path_edge_sweep_warp_fork_best_edge(
         * Add this branch's probability mass directly to R.          */
         if (lane == 0) {
             atomicAddDouble(stats.R, exp((double)cur_log_prob));
-            atomicAdd(stats.paths_enumerated, 1ULL);
         }
         return 0;
     }
-    
+
     /* Two-way fork: lane 0 → WORKING child, lane 1 → FAILED child.   */
     if (lane < 2) {
         WorkItem child;
@@ -416,6 +422,7 @@ int path_edge_sweep_warp_fork_best_edge(
         } else {
             atomicAddDouble(stats.esp_truncated,
                 exp((double)child.log_prob));
+	    atomicAdd(stats.paths_enumerated, 1ULL);
         }
     }
     
@@ -528,15 +535,39 @@ __global__ void factoring_kernel(
 
         /* ---- 2. TRUNCATION CHECK ---- */
         if (cur_log_prob < truncation_log_eps) {
-            if (lane == 0)
+            if (lane == 0){
                 atomicAddDouble(stats.esp_truncated,
                                 exp((double)cur_log_prob));
+	    }
             continue;
         }
 
         /* ---- 3. OPTIMISTIC BFS  (WORKING + UNKNOWN edges) ----     */
         /*  Pass s_parent so the BFS records predecessors.  The array */
         /*  is initialised to -1 inside bfs_reachable before use.     */
+
+
+	if(FORK_BEST_EDGE){
+		int opt_reach = bfs_reachable(
+            		g_row_ptr, g_col_idx, g_edge_id, g_N,
+            		&cur_mask, g_src, g_dst,
+            		/*allow_unknown=*/ 0,
+            		s_frontier, s_visited, s_next_frontier,
+            		node_words,
+            		/*parent=*/ (volatile int*)s_parent);
+		//A working path exists. no need to do forks
+        	if (opt_reach) {
+            		if (lane == 0){
+                		atomicAddDouble(stats.R, exp((double)cur_log_prob));
+				atomicAdd(stats.paths_enumerated, 1ULL);
+        		}
+			continue; 
+		}
+
+	}
+
+
+
         int opt_reach = bfs_reachable(
             g_row_ptr, g_col_idx, g_edge_id, g_N,
             &cur_mask, g_src, g_dst,
@@ -570,7 +601,9 @@ __global__ void factoring_kernel(
             s_path_nodes, s_path_eids, s_path_len,
             stats);
         */
-        int n_spawned = path_edge_sweep_warp_fork_best_edge(
+        int n_spawned ; 
+	if(FORK_BEST_EDGE)
+		n_spawned = path_edge_sweep_warp_fork_best_edge(
             g_row_ptr, g_col_idx, g_edge_id,
             g_src, g_dst,
             &cur_mask, cur_log_prob,
@@ -579,7 +612,17 @@ __global__ void factoring_kernel(
             &wq,
             s_path_nodes, s_path_eids, s_path_len,
             stats);
-
+	else
+		n_spawned = path_edge_sweep_warp(
+            g_row_ptr, g_col_idx, g_edge_id,
+            g_src, g_dst,
+            &cur_mask, cur_log_prob,
+            (const volatile int*)s_parent,
+            g_log_p, g_log_q,
+            &wq,
+            s_path_nodes, s_path_eids, s_path_len,
+            stats);
+	
         
 
     } /* end work loop */
@@ -789,7 +832,8 @@ int main(int argc, char** argv)
 
         //Uncomment below if you want to dynamically allocate all space
         //Warning: program may run very slow. 
-        //cfg.queue_capacity = (int)max_cap;
+        if(USE_MAX_MEMORY)
+		cfg.queue_capacity = (int)max_cap;
 
         printf("GPU memory: free=%.2f GB, total=%.2f GB\n",
                free_bytes  / (1024.0 * 1024.0 * 1024.0),
@@ -834,7 +878,6 @@ int main(int argc, char** argv)
                            sizeof(unsigned long long)));
     CUDA_CHECK(cudaMemset(dstats.nodes_processed, 0,
                            sizeof(unsigned long long)));
-
     /* ---- determine launch config ---- */
     int device_id = 0;
     cudaDeviceProp prop;

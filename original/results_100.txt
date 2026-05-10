@@ -1,0 +1,108 @@
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 8 M = 56 type: U
+READ OK
+ U NNNN=  8 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+OKKKKKKKK 0x2241ab690 
+TID SIZE = 13 MaskSize = 28 MAX_Q_SIZE = 100
+BACK  rel[ 0] (Lower Bound) = 0.9825734496 
+ Eps[0] = 0.00000000000000000000 Upper Bound = 0.98257344961166381836 
+ NP[ 0] = 111546 
+Time = 1491.97 ms 
+ Totals: 0.98257344961166381836  0.00000000000000000000  111546 
+
+__________________________________________________________________
+__________________________________________________________________
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 8 M = 56 type: U
+READ OK
+ U NNNN=  8 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+OKKKKKKKK 0x28e397190 
+TID SIZE = 13 MaskSize = 28 MAX_Q_SIZE = 100
+BACK  rel[ 0] (Lower Bound) = 0.7858142051 
+ Eps[0] = 0.00000000000000000000 Upper Bound = 0.78581420512745081552 
+ NP[ 0] = 111546 
+Time = 1518.79 ms 
+ Totals: 0.78581420512745081552  0.00000000000000000000  111546 
+
+__________________________________________________________________
+__________________________________________________________________
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 9 M = 72 type: U
+READ OK
+ U NNNN=  9 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+OKKKKKKKK 0x23666a990 
+TID SIZE = 13 MaskSize = 36 MAX_Q_SIZE = 100
+BACK  rel[ 0] (Lower Bound) = 0.9914217855 
+ Eps[0] = 0.00043890171218663454 Upper Bound = 0.99186068719427566975 
+ NP[ 0] = 853524 
+Time = 1675.56 ms 
+ Totals: 0.99142178548208903521  0.00043890171218663454  853524 
+
+__________________________________________________________________
+__________________________________________________________________
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 10 M = 90 type: U
+READ OK
+ U NNNN=  10 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+OKKKKKKKK 0x234923490 
+TID SIZE = 13 MaskSize = 45 MAX_Q_SIZE = 100
+BACK  rel[ 0] (Lower Bound) = 0.9951875884 
+ Eps[0] = 0.00107824649649046478 Upper Bound = 0.99626583492934628339 
+ NP[ 0] = 2753139 
+Time = 1774.42 ms 
+ Totals: 0.99518758843285581861  0.00107824649649046478  2753139 
+
+__________________________________________________________________
+__________________________________________________________________
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 15 M = 210 type: U
+READ OK
+ U NNNN=  15 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+OKKKKKKKK 0x26d4a5590 
+TID SIZE = 13 MaskSize = 105 MAX_Q_SIZE = 100
+BACK  rel[ 0] (Lower Bound) = 0.9991176034 
+ Eps[0] = 0.00080882079877889288 Upper Bound = 0.99992642420096566891 
+ NP[ 0] = 62348041 
+Time = 9980.24 ms 
+ Totals: 0.99911760340218680465  0.00080882079877889288  62348041 
+
+__________________________________________________________________
+__________________________________________________________________
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 25 M = 600 type: U
+READ OK
+ U NNNN=  25 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+OKKKKKKKK 0x265f8c490 
+TID SIZE = 13 MaskSize = 300 MAX_Q_SIZE = 100
+BACK  rel[ 0] (Lower Bound) = 0.9991763690 
+ Eps[0] = 0.00082357138296805499 Upper Bound = 0.99999994039519934930 
+ NP[ 0] = 356326221 
+Time = 64657.9 ms 
+ Totals: 0.99917636901223128021  0.00082357138296805499  356326221 
+
+__________________________________________________________________
+__________________________________________________________________

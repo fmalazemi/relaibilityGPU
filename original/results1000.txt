@@ -1,0 +1,110 @@
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 8 M = 56 type: U
+READ OK
+ U NNNN=  8 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 8 M = 56 type: U
+READ OK
+ U NNNN=  8 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+kernel launch failed with error "an illegal memory access was encountered".
+BACK  rel[ 0] (Lower Bound) = 0.0000000000 
+ Eps[0] = 0.00000000000000000000 Upper Bound = 0.00000000000000000000 
+ NP[ 0] = 0 
+Time = 66924.6 ms 
+ Totals: 0.00000000000000000000  0.00000000000000000000  0 
+
+__________________________________________________________________
+__________________________________________________________________
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 8 M = 56 type: U
+READ OK
+ U NNNN=  8 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+kernel launch failed with error "an illegal memory access was encountered".
+BACK  rel[ 0] (Lower Bound) = 0.0000000000 
+ Eps[0] = 0.00000000000000000000 Upper Bound = 0.00000000000000000000 
+ NP[ 0] = 0 
+Time = 63905.3 ms 
+ Totals: 0.00000000000000000000  0.00000000000000000000  0 
+
+__________________________________________________________________
+__________________________________________________________________
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 9 M = 72 type: U
+READ OK
+ U NNNN=  9 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+kernel launch failed with error "an illegal memory access was encountered".
+BACK  rel[ 0] (Lower Bound) = 0.0000000000 
+ Eps[0] = 0.00000000000000000000 Upper Bound = 0.00000000000000000000 
+ NP[ 0] = 0 
+Time = 63826.2 ms 
+ Totals: 0.00000000000000000000  0.00000000000000000000  0 
+
+__________________________________________________________________
+__________________________________________________________________
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 10 M = 90 type: U
+READ OK
+ U NNNN=  10 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+kernel launch failed with error "an illegal memory access was encountered".
+BACK  rel[ 0] (Lower Bound) = 0.0000000000 
+ Eps[0] = 0.00000000000000000000 Upper Bound = 0.00000000000000000000 
+ NP[ 0] = 0 
+Time = 66046.2 ms 
+ Totals: 0.00000000000000000000  0.00000000000000000000  0 
+
+__________________________________________________________________
+__________________________________________________________________
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 15 M = 210 type: U
+READ OK
+ U NNNN=  15 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+kernel launch failed with error "an illegal memory access was encountered".
+BACK  rel[ 0] (Lower Bound) = 0.0000000000 
+ Eps[0] = 0.00000000000000000000 Upper Bound = 0.00000000000000000000 
+ NP[ 0] = 0 
+Time = 387157 ms 
+ Totals: 0.00000000000000000000  0.00000000000000000000  0 
+
+__________________________________________________________________
+__________________________________________________________________
+TOTAL 21009465344  FREE 20707016704 
+ GPU Count : 2
+ HEAP 3221225472 
+ Enter Input File Name:  Enter src & terminal: Enter NB : N= 25 M = 600 type: U
+READ OK
+ U NNNN=  25 
+ Grid 256 1 1
+DEVICE 0  sf = 4 sd = 8 
+kernel launch failed with error "an illegal memory access was encountered".
+BACK  rel[ 0] (Lower Bound) = 0.0000000000 
+ Eps[0] = 0.00000000000000000000 Upper Bound = 0.00000000000000000000 
+ NP[ 0] = 0 
+Time = 1.85297e+06 ms 
+ Totals: 0.00000000000000000000  0.00000000000000000000  0 
+
+__________________________________________________________________
+__________________________________________________________________

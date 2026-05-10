@@ -18,7 +18,7 @@ using namespace std;
 ifstream infile;
 #include "GraphRP.h"
 
-#define MAX_Q_SIZE 1300000
+#define MAX_Q_SIZE 130000000
 typedef unsigned char * MASKTYPE;
 double MKEY[MAX_Q_SIZE];
 MASKTYPE * MASKQUE = new MASKTYPE[MAX_Q_SIZE]; // MAXIMUM NUMBER OF MASKS ?????

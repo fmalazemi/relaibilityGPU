@@ -27,7 +27,7 @@ ifstream infile;
 const int NGpus = 1; // Number of GPUs
 int NBL;
 typedef unsigned char * MASKTYPE;
-#define MAX_Q_SIZE 100
+#define MAX_Q_SIZE 1000
 Graph_Type *d_Graph[NGpus];
 N_Type *d_Nodes[NGpus]; E_Type *d_Edges[NGpus];
 float *Prob, *d_Prob[NGpus];

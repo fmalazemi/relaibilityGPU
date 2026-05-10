@@ -3,8 +3,8 @@
 # ============================================================
 
 NVCC       ?= nvcc
-ARCH       ?= sm_70          # change to your GPU arch (sm_75, sm_80, sm_86, sm_89, sm_90)
-MASK_WORDS ?= 16             # supports up to MASK_WORDS*16 edges (16→256, 32→512, 256→4096)
+ARCH       ?= sm_86          # change to your GPU arch (sm_75, sm_80, sm_86, sm_89, sm_90)
+MASK_WORDS ?= 32             # supports up to MASK_WORDS*16 edges (16→256, 32→512, 256→4096)
 
 NVCCFLAGS  = -O3 -arch=$(ARCH) \
              -DMAX_MASK_WORDS=$(MASK_WORDS) \
